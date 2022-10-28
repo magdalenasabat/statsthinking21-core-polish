@@ -1,9 +1,14 @@
 
-## Statistical Thinking for the 21st Century
+
+## Polish translation of 'Statistical Thinking for the 21st Century'
 
 Copyright 2018 Russell A. Poldrack
+Translated by Magdalena Sabat
 
-A live Gitbook version of the book is available at http://statsthinking21.org/
+## project is in progress, has not been recognized by mr Poldrack or anyone else. If you want to join in lmk. 
+
+
+A live Gitbook version of the original book is available at http://statsthinking21.org/
 
 A Docker container to build the entire book is available at https://hub.docker.com/r/poldrack/statsthinking21/
 
