@@ -1,0 +1,290 @@
+---
+output:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+  html_document: default
+---
+# Doing reproducible research {#doing-reproducible-research}
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# setup colorblind palette
+# from http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette
+# The palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+```
+
+
+Większość ludzi uważa, że nauka jest niezawodnym sposobem odpowiedzi na pytania dotyczące świata.  Kiedy nasz lekarz przepisuje nam jakieś lekarstwo, ufamy, że jego skuteczność została potwierdzona badaniami, podobnie jak wierzymy, że samoloty, którymi latamy, nie spadną z nieba.  Jednak od 2005 roku narastają obawy, że nauka może nie zawsze działać tak dobrze, jak nam się od dawna wydaje.  W tym rozdziale omówimy te obawy dotyczące odtwarzalności badań naukowych i nakreślimy kroki, które można podjąć, aby upewnić się, że nasze wyniki statystyczne są jak najbardziej powtarzalne.
+
+## Jak według nas powinna działać nauka
+
+Powiedzmy, że jesteśmy zainteresowani projektem badawczym dotyczącym tego, jak dzieci wybierają to, co jedzą. Jest to pytanie, które zostało zadane w badaniu przeprowadzonym przez znanego badacza jedzenia Briana Wansinka i jego współpracowników w 2012 roku.  Standardowy (i, jak zobaczymy, nieco naiwny) pogląd idzie mniej więcej tak:
+
+* Zaczynasz od hipotezy.
+    * Branding z popularnymi postaciami powinien spowodować, że dzieci częściej będą wybierać "zdrowe" jedzenie
+* You collect some data
+    * Offer children the choice between a cookie and an apple with either an Elmo-branded sticker or a control sticker, and record what they choose
+* Robisz statystyki, aby przetestować hipotezę zerową
+    * "Zaplanowane wcześniej porównanie pokazuje, że jabłka z marką Elmo- były związane ze wzrostem wyboru przez dziecko jabłka nad ciasteczkiem, z 20,7% do 33,8% ($5,158; P=.02)" [@wans:just:payn:2012]
+* Wyciągasz wnioski na podstawie danych.
+    * "To badanie sugeruje, że wykorzystanie brandingu lub atrakcyjnych znaków firmowych może przynieść korzyści zdrowszej żywności bardziej niż korzyści pobłażliwej, bardziej przetworzonej żywności. Tak jak atrakcyjne nazwy zostały pokazane, aby zwiększyć wybór zdrowszej żywności w szkolnych lunchroomach, marki i postacie z kreskówek mogą zrobić to samo z małymi dziećmi."[@wans:just:payn:2012].
+
+## Jak nauka (czasami) faktycznie działa
+
+Brian Wansink jest dobrze znany ze swoich książek na temat "Mindless Eating", a jego honorarium za korporacyjne wystąpienia w pewnym momencie sięgało dziesiątek tysięcy dolarów.  W 2017 roku zestaw badaczy zaczął analizować niektóre z jego opublikowanych badań, zaczynając od zestawu papierów na temat tego, ile pizzy ludzie zjedli w bufecie.  Badacze poprosili Wansinka o udostępnienie danych z badań, ale odmówił, więc dokopali się do jego opublikowanych prac i znaleźli w nich dużą liczbę niespójności i problemów statystycznych.  Rozgłos wokół tej analizy spowodował, że wiele innych osób zaczęło grzebać w przeszłości Wansinka, w tym zdobywając e-maile pomiędzy Wansinkiem a jego współpracownikami.  Jak [donosi Stephanie Lee z Buzzfeed](https://www.buzzfeednews.com/article/stephaniemlee/brian-wansink-cornell-p-hacking), maile te pokazały, jak dalekie od naiwnego modelu były rzeczywiste praktyki badawcze Wansinka:
+
+>...jeszcze we wrześniu 2008 roku, kiedy Payne przeglądał dane wkrótce po ich zebraniu, nie znalazł żadnego silnego związku jabłek i Elmo - przynajmniej jeszcze nie. ...
+"Załączyłem do tej wiadomości kilka wstępnych wyników badań nad koźlęciem, abyście mogli się z nich zapoznać" - napisał Payne do swoich współpracowników. "Nie rozpaczajcie. Wygląda na to, że naklejki na owocach mogą zadziałać (przy odrobinie więcej czarodziejstwa)." ...
+Wansink przyznał również, że papier był słaby, ponieważ przygotowywał się do złożenia go do czasopism. P-value był 0.06, tylko nieśmiały od złotego standardu odcięcia 0.05. To był "punkt zaczepienia", jak to ujął w e-mailu z 7 stycznia 2012 roku. ...
+"Wydaje mi się, że powinna być niższa", napisał, załączając projekt. "Czy chcesz spojrzeć na to i zobaczyć, co myślisz. Jeśli można uzyskać dane, a to wymaga trochę tweeking, to byłoby dobrze, aby uzyskać, że jedna wartość poniżej .05." ...
+Później w 2012 roku badanie pojawiło się w prestiżowym JAMA Pediatrics, nienaruszona wartość 0,06 p. Ale we wrześniu 2017 roku zostało wycofane i zastąpione wersją, która wymieniała wartość p-value 0,02. A miesiąc później wycofano ją jeszcze raz z zupełnie innego powodu: Wansink przyznał, że eksperyment nie został przeprowadzony na 8- do 11-latkach, jak pierwotnie twierdził, ale na przedszkolakach.
+
+Takie zachowanie w końcu dopadło Wansinka; [piętnaście jego badań zostało wycofanych](https://www.vox.com/science-and-health/2018/9/19/17879102/brian-wansink-cornell-food-brand-lab-retractions-jama), a w 2018 roku zrezygnował ze stanowiska wykładowcy na Uniwersytecie Cornell.
+
+## Kryzys odtwarzalności w nauce
+
+Choć uważamy, że rodzaj fraudującego zachowania widoczny w przypadku Wansinka jest stosunkowo rzadki, coraz wyraźniej widać, że problemy z odtwarzalnością są w nauce znacznie bardziej rozpowszechnione niż wcześniej sądzono.  Stało się to szczególnie widoczne w 2015 roku, kiedy duża grupa badaczy opublikowała w czasopiśmie *Science* pracę zatytułowaną "Estimating the reproducibility of psychological science"[@open:2015]. W pracy tej badacze wzięli 100 opublikowanych badań z zakresu psychologii i próbowali odtworzyć wyniki pierwotnie podane w pracach.  Ich wnioski były szokujące: Podczas gdy 97% oryginalnych prac podawało statystycznie istotne wyniki, tylko 37% tych efektów było statystycznie istotnych w badaniu replikacyjnym.  Chociaż te problemy w psychologii otrzymały wiele uwagi, wydają się być obecne w prawie każdej dziedzinie nauki, od biologii nowotworów [@erri:iorn:gunn:2014] i chemii [@bake:2017] do ekonomii [@NBERw22989] i nauk społecznych [@Camerer2018EvaluatingTR].
+
+Kryzys odtwarzalności, który pojawił się po 2010 roku, został właściwie przewidziany przez Johna Ioannidisa, lekarza ze Stanford, który w 2005 roku napisał artykuł zatytułowany "Dlaczego większość opublikowanych wyników badań jest fałszywa"[@ioan:2005].  W artykule tym Ioannidis dowodził, że stosowanie testów statystycznych z hipotezą zerową w kontekście współczesnej nauki z konieczności będzie prowadzić do wysokiego poziomu fałszywych wyników.
+
+### Pozytywna wartość predykcyjna i istotność statystyczna
+
+Analiza Ioannidisa skupiła się na koncepcji znanej jako *pozytywna wartość predykcyjna*, która jest definiowana jako odsetek wyników pozytywnych (co ogólnie przekłada się na "ustalenia istotne statystycznie"), które są prawdziwe:
+
+$$
+PPV = ¨frac{p(prawdziwy wynik pozytywny)}{p(prawdziwy wynik pozytywny) + p(fałszywy wynik pozytywny)}
+$$
+Zakładając, że znamy prawdopodobieństwo, że nasza hipoteza jest prawdziwa ($p(hIsTrue)$), to prawdopodobieństwo wyniku prawdziwie pozytywnego to po prostu $p(hIsTrue)$ pomnożone przez moc statystyczną badania:
+
+$$
+p(wynik prawdziwie pozytywny) = p(hIsTrue) * (1 - β)
+$$
+gdzie $beta$ to współczynnik fałszywych negatywów.  Prawdopodobieństwo wyniku fałszywie pozytywnego określają $p(hIsTrue)$ i współczynnik fałszywie pozytywny $alpha$:
+
+$$
+p(wynik fałszywie dodatni) = (1 - p(hIsTrue)) * álpha
+$$
+
+PPV definiuje się wówczas jako:
+
+$$
+PPV = \frac{p(hIsTrue) * (1 - \beta)}{p(hIsTrue) * (1 - \beta) + (1 - p(hIsTrue)) * álpha}
+$$
+
+Weźmy najpierw przykład, w którym prawdopodobieństwo prawdziwości naszej hipotezy jest wysokie, powiedzmy 0,8 - choć zauważmy, że w rzeczywistości nie możemy znać tego prawdopodobieństwa.  Powiedzmy, że przeprowadzamy badanie ze standardowymi wartościami $alfa=0,05$ i $beta=0,2$.  Możemy obliczyć PPV jako:
+
+$$
+PPV = ∑frac{0,8 * (1 - 0,2)}{0,8 * (1 - 0,2) + (1 - 0,8) * 0,05} = 0,98
+$$
+Oznacza to, że jeśli znajdziemy pozytywny wynik w badaniu, w którym hipoteza jest prawdopodobna, a moc jest wysoka, to prawdopodobieństwo jej prawdziwości jest wysokie.  Zauważ jednak, że pole badawcze, w którym hipotezy mają tak wysokie prawdopodobieństwo prawdziwości, nie jest prawdopodobnie zbyt interesującym polem badawczym; badania są najważniejsze, gdy mówią nam coś nieoczekiwanego!
+
+Zróbmy tę samą analizę dla dziedziny, w której $p(hIsTrue)=0,1$ -- czyli większość testowanych hipotez jest fałszywa.  W tym przypadku PPV wynosi:
+
+$$
+PPV = rzedział{0,1 * (1 - 0,2)}{0,1 * (1 - 0,2) + (1 - 0,1) * 0,05} = 0,307
+$$
+
+Oznacza to, że w dziedzinie, w której większość hipotez może być błędna (czyli w ciekawej dziedzinie nauki, w której badacze testują ryzykowne hipotezy), nawet gdy znajdziemy pozytywny wynik, to z większym prawdopodobieństwem będzie on fałszywy niż prawdziwy!  W rzeczywistości jest to kolejny przykład efektu stopy bazowej, który omawialiśmy w kontekście testowania hipotez -- kiedy wynik jest mało prawdopodobny, wtedy jest prawie pewne, że większość pozytywnych wyników będzie fałszywie pozytywna.
+
+Możemy to zasymulować, aby pokazać jak PPV odnosi się do mocy statystycznej, jako funkcja wcześniejszego prawdopodobieństwa prawdziwości hipotezy (patrz rysunek \@ref(fig:PPVsim))
+
+``{r PPVsim, echo=FALSE,fig.cap='Symulacja wartości predykcyjnej posterior jako funkcji mocy statystycznej (wykreślonej na osi x) i uprzedniego prawdopodobieństwa prawdziwości hipotezy (wykreślonego jako osobne linie).',fig.width=6,fig.height=4,out.height='50%'}
+
+alfa=0.05 # współczynnik fałszywych pozytywów
+beta = seq(1.,0.05,-0.05) # współczynnik fałszywych negatywów
+powerVals = 1-beta
+priorVals=c(.01,0.1,0.5,0.9)
+
+nstudies=100
+
+df=data.frame(power=rep(powerVals,length(priorVals))) %>%
+  mutate(priorVal=kronecker(priorVals,rep(1,length(powerVals))),
+         alpha=alpha)
+
+
+# Pozytywna wartość predykcyjna (PPV) - prawdopodobieństwo, że pozytywny wynik jest prawdziwy
+PPV = function(df) {
+  df$PPV = (df$power*df$priorVal)/(df$power*df$priorVal + df$alfa*(1-df$priorVal))
+  return(df)
+}
+
+df=PPV(df)
+ggplot(df,aes(power,PPV,linetype=as.factor(priorVal))) +
+  geom_line(size=1) +
+  ylim(0,1) +
+  xlim(0,1) +
+  ylab('Posterior predictive value (PPV)')
+
+```
+
+Niestety, moc statystyczna pozostaje niska w wielu dziedzinach nauki [@smal:mcel:2016], co sugeruje, że wiele opublikowanych wyników badań jest fałszywych.
+
+Zabawny przykład tego można było zobaczyć w pracy Jonathana Schoenfelda i Johna Ioannidisa, zatytułowanej "Is everything we eat associated with cancer? A systematic cookbook review"[@scho:ioan:2013].  Przeanalizowali oni dużą liczbę prac, które oceniały związek między różnymi pokarmami a ryzykiem zachorowania na raka i stwierdzili, że 80% składników było związanych ze zwiększonym lub zmniejszonym ryzykiem zachorowania na raka.  W większości tych przypadków dowody statystyczne były słabe, a kiedy wyniki zostały połączone w ramach wszystkich badań, wynik był zerowy.
+
+### Klątwa zwycięzcy
+
+Inny rodzaj błędu może również wystąpić, gdy moc statystyczna jest niska: Nasze szacunki wielkości efektu będą zawyżone.  Zjawisko to często określa się terminem "klątwa zwycięzcy", który pochodzi z ekonomii, gdzie odnosi się do faktu, że w przypadku pewnych rodzajów aukcji (gdzie wartość jest taka sama dla wszystkich, jak słoik ćwiartek, a oferty są prywatne), zwycięzca ma gwarancję, że zapłaci więcej niż warte jest dobro.  W nauce klątwa zwycięzcy odnosi się do faktu, że wielkość efektu oszacowana na podstawie znaczącego wyniku (tj. zwycięzcy) jest prawie zawsze przeszacowaniem prawdziwej wielkości efektu.
+
+Możemy to zasymulować, aby zobaczyć, jak szacowana wielkość efektu dla znaczących wyników jest związana z rzeczywistą bazową wielkością efektu. Wygenerujmy dane, dla których istnieje prawdziwa wielkość efektu d = 0,2, i oszacujmy wielkość efektu dla tych wyników, w których wykryto znaczący efekt. Lewy panel rysunku pokazuje, że gdy moc jest niska, szacowana wielkość efektu dla znaczących wyników może być bardzo zawyżona w porównaniu z rzeczywistą wielkością efektu.
+
+``{r CurseSim, echo=FALSE,message=FALSE,fig.cap="Left: A simulation of the winner's curse as a function of statistical power (x axis). Linia ciągła pokazuje szacowaną wielkość efektu, a linia kropkowana pokazuje rzeczywistą wielkość efektu. Po prawej: Histogram przedstawiający oszacowania wielkości efektu dla pewnej liczby próbek ze zbioru danych, przy czym wyniki istotne pokazano na niebiesko, a nieistotne na czerwono. ",fig.width=8,fig.height=4,out.height='50%'}
+
+trueEffectSize=0.2
+dfCurse=data.frame(sampSize=seq(20,300,20)) %>%
+  mutate(effectSize=trueEffectSize,
+         alfa=0.05)
+
+simCurse = function(df,nruns=1000){
+  sigResults=0
+  sigEffects=c()
+  for (i in 1:nruns){
+    tmpData=rnorm(df$sampSize,mean=df$effectSize,sd=1)
+    ttestResult=t.test(tmpData)
+    if (ttestResult$p.value<df$alpha){
+      sigResults = sigResults + 1
+      sigEffects=c(sigEffects,ttestResult$estimate)
+    }
+  }
+  df$power=sigResults/nruns
+  df$effectSizeEstimate=średnia(sigEffects)
+  return(df)
+}
+
+dfCurse = dfCurse %>% group_by(sampSize) %>% do(simCurse(.))
+
+p1 <- ggplot(dfCurse,aes(power,effectSizeEstimate)) +
+  geom_line(size=1) +
+  ylim(0,max(dfCurse$effectSizeEstimate)*1.2) +
+  geom_hline(yintercept = trueEffectSize,size=1,linetype='dotted',color='red')
+
+# pojedyncze
+
+sampSize=60
+effectSize=0.2
+nruns=1000
+alfa=0.05
+df=data.frame(idx=seq(1,nruns)) %>%
+  mutate(pval=NA,
+         estymacja=NA)
+
+for (i in 1:nruns){
+  tmpData=rnorm(sampSize,mean=effectSize,sd=1)
+  ttestResult=t.test(tmpData)
+  df$pval[i]=ttestResult$p.value
+  df$estimate[i]=ttestResult$estimate
+}
+df = df %>%
+  mutate(significant=pval<alpha) %>%
+  group_by(significant)
+
+power=mean(df$pval<alpha)
+
+meanSigEffect=średnia(df$estimate[df$pval<alpha])
+
+meanTrueEffect= średnia(df$estimate)
+
+p2 <- ggplot(df,aes(estimate,fill=significant)) +
+  geom_histogram(bins=50)
+
+plot_grid(p1, p2)
+```
+
+Możemy przyjrzeć się pojedynczej symulacji, aby zobaczyć, dlaczego tak się dzieje.  W prawym panelu rysunku ``ref(fig:CurseSim) można zobaczyć histogram szacowanych wielkości efektów dla 1000 próbek, oddzielonych od siebie tym, czy test był statystycznie istotny.  Z rysunku powinno jasno wynikać, że jeśli szacujemy wielkość efektu tylko na podstawie wyników istotnych, to nasz szacunek będzie zawyżony; tylko wtedy, gdy większość wyników jest istotna (tj. moc jest wysoka, a efekt stosunkowo duży) nasz szacunek zbliży się do rzeczywistej wielkości efektu.
+
+## Wątpliwe praktyki badawcze
+
+Popularna książka zatytułowana "The Compleat Academic: A Career Guide", wydana przez American Psychological Association [@darl:zann:roed:2004], ma na celu dostarczenie aspirującym naukowcom wskazówek, jak budować karierę.  W rozdziale autorstwa znanego psychologa społecznego Daryla Bema zatytułowanym "Writing the Empirical Journal Article", Bem podaje kilka sugestii dotyczących pisania pracy badawczej. Niestety, praktyki, które sugeruje są głęboko problematyczne i stały się znane jako *kwestionowane praktyki badawcze* (QRPs).
+
+> Istnieją dwa możliwe artykuły, które możesz napisać: (1) artykuł, który planowałeś napisać, gdy projektowałeś swoje badanie lub (2) artykuł, który ma największy sens teraz, gdy zobaczyłeś wyniki. Rzadko są one takie same, a poprawna odpowiedź to (2).
+
+To, co sugeruje Bem, znane jest jako *HARKing* (Hypothesizing After the Results are Known)[@kerr:1998].  To może wydawać się niewinne, ale jest problematyczne, ponieważ pozwala badaczowi przeformułować wniosek post-hoc (który powinniśmy wziąć z ziarnem soli) jako predykcję a priori (w którą mielibyśmy silniejszą wiarę).  W istocie, pozwala to badaczowi przepisać swoją teorię na podstawie faktów, zamiast wykorzystywać teorię do tworzenia przewidywań, a następnie ich testowania - przypomina to przesuwanie słupka bramki tak, by kończył się tam, gdzie leci piłka.  W ten sposób bardzo trudno jest potwierdzić błędne idee, ponieważ słupek bramki może być zawsze przesunięty tak, aby pasował do danych. Bem kontynuuje:
+
+> **Analizowanie danych** Badaj je pod każdym kątem. Analizuj osobno płcie. Wymyśl nowe złożone indeksy. Jeśli jakaś dana sugeruje nową hipotezę, spróbuj znaleźć na nią dowody w innym miejscu danych. Jeśli widzisz niewyraźne ślady interesujących wzorców, spróbuj przeorganizować dane tak, by ukazać je w bardziej wyrazistym świetle. Jeśli są uczestnicy, których nie lubisz, albo próby, obserwatorzy lub ankieterzy, którzy dali ci anomalne wyniki, porzuć ich (tymczasowo). Wyrusz na wyprawę w poszukiwaniu czegoś - czegokolwiek - interesującego. Nie, to nie jest niemoralne.
+
+To, co Bem tu sugeruje, znane jest jako *p-hacking*, który odnosi się do próbowania wielu różnych analiz, aż do znalezienia znaczącego wyniku.  Bem ma rację, że gdyby zgłaszać każdą analizę przeprowadzoną na danych, to takie podejście nie byłoby "niemoralne". Rzadko jednak zdarza się, że w pracy omawia się wszystkie analizy, które zostały przeprowadzone na zbiorze danych; często przedstawia się tylko te analizy, które *działały* - co zwykle oznacza, że udało się znaleźć statystycznie istotny wynik.  Istnieje wiele różnych sposobów, na które można się włamać:
+
+- Analizować dane po każdym badanym i przestać je zbierać, gdy p<.05
+- Analizować wiele różnych zmiennych, ale podawać tylko te z p<.05
+- Zbierz wiele różnych warunków eksperymentalnych, ale podaj tylko te z p<.05
+- Wyklucz uczestników, aby uzyskać p<.05
+- Przekształć dane, aby uzyskać p<.05
+
+Znany artykuł autorstwa @simm:nels:simo:2011 pokazał, że stosowanie tego typu strategii p-hackingowych może znacznie zwiększyć rzeczywisty współczynnik fałszywie pozytywnych wyników, co skutkuje dużą liczbą wyników fałszywie pozytywnych.
+
+### ESP czy QRP?
+
+W 2011 roku, ten sam Daryl Bem opublikował artykuł [@bem:2011], który twierdził, że znalazł naukowe dowody na pozazmysłowe postrzeganie.  W artykule stwierdzono:
+
+>Ten artykuł relacjonuje 9 eksperymentów, obejmujących ponad 1000 uczestników, które testują wpływ retroaktywny poprzez "odwrócenie w czasie" dobrze ugruntowanych efektów psychologicznych tak, że odpowiedzi jednostki są uzyskiwane przed wystąpieniem przypuszczalnie przyczynowych zdarzeń stymulacyjnych. ...Średnia wielkość efektu (d) w działaniu psi we wszystkich 9 eksperymentach wyniosła 0,22, a wszystkie eksperymenty, z wyjątkiem jednego, przyniosły statystycznie istotne wyniki.
+
+Kiedy badacze zaczęli analizować artykuł Bema, stało się jasne, że zaangażował się on we wszystkie QRP, które zalecał w rozdziale omówionym powyżej.  Jak zauważył Tal Yarkoni w [wpisie na blogu, który analizował artykuł](http://www.talyarkoni.org/blog/2011/01/10/the-psychology-of-parapsychology-or-why-good-researchers-publishing-good-articles-in-good-journals-can-still-get-it-totally-wrong/):
+
+- Wielkości próbek różniły się w różnych badaniach
+- Różne badania wydają się być wrzucone razem lub rozdzielone.
+- Badania dopuszczają wiele różnych hipotez i nie jest jasne, które z nich zostały wcześniej zaplanowane
+- Bem używał testów jednoogonowych nawet wtedy, gdy nie jest jasne, że istnieje kierunkowa predykcja (więc alfa to tak naprawdę 0,1)
+- Większość wartości p jest bardzo bliska 0,05
+- It's not clear how many other studies were run but not reported
+
+## Prowadzenie badań odtwarzalnych
+
+W latach, w których powstał kryzys związany z odtwarzalnością, powstał prężny ruch na rzecz rozwoju narzędzi pomagających chronić odtwarzalność badań naukowych.
+
+### Wstępna rejestracja
+
+Jednym z pomysłów, który zyskał największą popularność, jest *rejestracja wstępna*, w której przesyła się szczegółowy opis badania (w tym wszystkie analizy danych) do zaufanego repozytorium (takiego jak [Open Science Framework](http://osf.io) lub [AsPredicted.org](http://aspredicted.org)).  Poprzez szczegółowe określenie swoich planów przed analizą danych, rejestracja wstępna daje większą wiarę, że analizy nie ucierpią z powodu p-hackingu lub innych wątpliwych praktyk badawczych.
+
+Efekty rejestracji wstępnej w badaniach klinicznych w medycynie były uderzające.  W 2000 roku National Heart, Lung, and Blood Institute (NHLBI) zaczął wymagać, aby wszystkie badania kliniczne były wstępnie rejestrowane przy użyciu systemu [ClinicalTrials.gov](http://clinicaltrials.gov).  Zapewnia to naturalny eksperyment do obserwacji efektów wstępnej rejestracji badań.  Kiedy @kapl:irvi:2015 zbadał wyniki badań klinicznych w czasie, stwierdzili, że liczba pozytywnych wyników w badaniach klinicznych była znacznie zmniejszona po 2000 roku w porównaniu z okresem wcześniejszym. Chociaż istnieje wiele możliwych przyczyn, wydaje się prawdopodobne, że przed rejestracją badań badacze byli w stanie zmienić swoje metody lub hipotezy w celu znalezienia pozytywnego wyniku, co stało się trudniejsze po wprowadzeniu wymogu rejestracji.
+
+### Reprodukowalne praktyki
+
+W artykule @simm:nels:simo:2011 przedstawiono zestaw sugerowanych praktyk, które mają uczynić badania bardziej odtwarzalnymi, z których wszystkie powinny stać się standardem dla badaczy:
+
+> - Autorzy muszą zdecydować o regule zakończenia zbierania danych przed rozpoczęciem zbierania danych i podać tę regułę w artykule.
+- Autorzy muszą zebrać co najmniej 20 obserwacji na komórkę lub przedstawić przekonujące uzasadnienie kosztów zbierania danych.
+- Autorzy muszą wymienić wszystkie zmienne zebrane w badaniu.
+- Autorzy muszą podać wszystkie warunki eksperymentalne, w tym nieudane manipulacje.
+- Jeśli obserwacje są eliminowane, autorzy muszą również podać, jakie są wyniki statystyczne, jeśli te obserwacje są włączone.
+- Jeśli analiza zawiera zmienną, autorzy muszą przedstawić wyniki statystyczne analizy bez tej zmiennej.
+
+### Replikacja
+
+Jednym z wyróżników nauki jest idea *replikacji* - to znaczy, że inni badacze powinni być w stanie przeprowadzić to samo badanie i uzyskać ten sam wynik.  Niestety, jak widzieliśmy na przykładzie omówionego wcześniej projektu Replikacja, wiele wyników nie da się zreplikować.  Najlepszym sposobem zapewnienia replikowalności własnych badań jest najpierw ich samodzielna replikacja; w przypadku niektórych badań nie będzie to możliwe, ale zawsze, gdy jest to możliwe, należy upewnić się, że wyniki badań utrzymają się w nowej próbie.  Ta nowa próba powinna mieć wystarczającą moc, aby znaleźć interesującą nas wielkość efektu; w wielu przypadkach będzie to wymagało większej próby niż oryginalna.
+
+Ważne jest, aby pamiętać o kilku rzeczach w odniesieniu do replikacji.  Po pierwsze, fakt, że próba replikacji nie powiodła się, nie musi oznaczać, że pierwotne odkrycie było fałszywe; pamiętaj, że przy standardowym poziomie 80% mocy, nadal istnieje jedna na pięć szans, że wynik będzie nieistotny, nawet jeśli istnieje prawdziwy efekt. Z tego powodu, generalnie chcemy zobaczyć wielokrotne replikacje każdego ważnego odkrycia, zanim zdecydujemy, czy w nie wierzyć.  Niestety, wiele dziedzin, w tym psychologia, nie stosowało się do tej rady w przeszłości, co prowadziło do "podręcznikowych" wyników, które okazywały się prawdopodobnie fałszywe.  W odniesieniu do badań Daryla Bema nad ESP, duża próba replikacji obejmująca 7 badań nie zdołała zreplikować jego ustaleń [@gala:lebo:nels:2012].
+
+Po drugie, pamiętaj, że wartość p nie dostarcza nam miary prawdopodobieństwa replikacji odkrycia.  Jak omawialiśmy wcześniej, wartość p jest stwierdzeniem o prawdopodobieństwie wystąpienia danych przy określonej hipotezie zerowej; nie mówi nam nic o prawdopodobieństwie, że odkrycie jest rzeczywiście prawdziwe (jak dowiedzieliśmy się w rozdziale o analizie bayesowskiej).  Aby poznać prawdopodobieństwo replikacji, musimy znać prawdopodobieństwo, że wynik jest prawdziwy, a tego zazwyczaj nie znamy.
+
+
+## Przeprowadzanie odtwarzalnej analizy danych
+
+Do tej pory skupiliśmy się na zdolności do replikacji wyników innych badaczy w nowych eksperymentach, ale innym ważnym aspektem odtwarzalności jest możliwość odtworzenia czyichś analiz na własnych danych, co nazywamy *komputerową odtwarzalnością*. Wymaga to od badaczy dzielenia się zarówno swoimi danymi, jak i kodem analizy, tak aby inni badacze mogli zarówno spróbować odtworzyć wynik, jak i potencjalnie przetestować różne metody analizy na tych samych danych.  W psychologii obserwuje się coraz większy ruch w kierunku otwartego dzielenia się kodem i danymi; na przykład, czasopismo *Psychological Science* zapewnia obecnie "odznaki" pracom, które dzielą się materiałami badawczymi, danymi i kodem, jak również za wstępną rejestrację.
+
+Możliwość odtworzenia analiz jest jednym z powodów, dla których zdecydowanie opowiadamy się za stosowaniem skryptowych analiz (takich jak te z użyciem R) zamiast używania pakietu oprogramowania typu "wskaż i kliknij".  Jest to również powód, dla którego opowiadamy się za używaniem wolnego i otwartego oprogramowania (jak R) w przeciwieństwie do komercyjnych pakietów oprogramowania, które wymagałyby od innych zakupu oprogramowania w celu odtworzenia analiz.
+
+Istnieje wiele sposobów na dzielenie się zarówno kodem, jak i danymi.  Powszechnym sposobem dzielenia się kodem są strony internetowe, które wspierają *kontrolę wersji* oprogramowania, takie jak [Github](http://github.com).  Małe zbiory danych również mogą być udostępniane za pośrednictwem tych samych stron; większe zbiory danych mogą być udostępniane poprzez portale udostępniania danych, takie jak [Zenodo](https://zenodo.org/), lub poprzez wyspecjalizowane portale dla konkretnych typów danych (takie jak [OpenNeuro](http://openneuro.org) dla danych neuroobrazowania).
+
+## Wnioski: Robienie lepszej nauki
+
+Obowiązkiem każdego naukowca jest poprawa swoich praktyk badawczych w celu zwiększenia odtwarzalności swoich badań.  Należy pamiętać, że celem badań nie jest znalezienie znaczącego wyniku; jest nim raczej zadawanie pytań o naturę i odpowiadanie na nie w jak najbardziej prawdziwy sposób.  Większość naszych hipotez będzie błędna, i powinniśmy czuć się z tym komfortowo, tak że kiedy znajdziemy taką, która będzie słuszna, będziemy jeszcze bardziej pewni jej prawdziwości.
+
+## Cele nauczania.
+
+* Opisz pojęcie P-hacking i jego wpływ na praktykę naukową
+* Opisać pojęcie dodatniej wartości predykcyjnej i jej związek z mocą statystyczną
+* Opisz koncepcję rejestracji wstępnej i jak może ona pomóc w ochronie przed wątpliwymi praktykami badawczymi
+
+## Sugerowane lektury
+
+- Rigor Mortis: How Sloppy Science Creates Worthless Cures, Crushes Hope, and Wastes Billions, by Richard Harris](https://www.amazon.com/dp/B01K3WN72C)
+- Improving your statistical inferences](https://www.coursera.org/learn/statistical-inferences) - kurs internetowy na temat tego, jak przeprowadzać lepszą analizę statystyczną, obejmujący wiele kwestii poruszonych w tym rozdziale.

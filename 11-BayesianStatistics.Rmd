@@ -48,7 +48,7 @@ The idea behind a generative model is that a *latent* (unseen) process generates
 knitr::include_graphics("images/BayesianInference.png")
 ```
 
-If we know the value of the latent variable, then it's easy to reconstruct what the observed data should look like.  For example, let's say that we are flipping a coin that we know to be fair, such that we would expect it to land on heads 50% of the time.  We can describe the coin by a binomial distribution with a value of $P_{heads}=0.5$, and then we could generate random samples from such a distribution in order to see what the observed data should look like. However, in general we are in the opposite situation: We don't know the value of the latent variable of interest, but we have some data that we would like to use to estimate it. 
+If we know the value of the latent variable, then it's easy to reconstruct what the observed data should look like.  For example, let's say that we are flipping a coin that we know to be fair, such that we would expect it to land on heads 50% of the time.  We can describe the coin by a binomial distribution with a value of $P_{heads}=0.5$, and then we could generate random samples from such a distribution in order to see what the observed data should look like. However, in general we are in the opposite situation: We don't know the value of the latent variable of interest, but we have some data that we would like to use to estimate it.
 
 ## Bayes' theorem and inverse inference
 
@@ -94,12 +94,12 @@ What the security staff want to know is what is the likelihood that a person is 
 To use Bayes' theorem, we first need to specify the prior probability for the hypothesis.  In this case, we don't know the real number but we can assume that it's quite small.  According to the [FAA](https://www.faa.gov/air_traffic/by_the_numbers/media/Air_Traffic_by_the_Numbers_2018.pdf), there were 971,595,898 air passengers in the U.S. in 2017.  Let's say that one of those travelers was carrying an explosive in their bag --- that would give a prior probability of 1 out of 971 million, which is very small!  The security personnel may have reasonably held a stronger prior in the months after the 9/11 attack, so let's say that their subjective belief was that one out of every million flyers was carrying an explosive.
 
 ```{r echo=FALSE}
-bayes_df = data.frame(prior=NA, 
-                      likelihood=NA, 
-                      marginal_likelihood=NA, 
+bayes_df = data.frame(prior=NA,
+                      likelihood=NA,
+                      marginal_likelihood=NA,
                       posterior=NA)
 
-bayes_df$prior <- 1/1000000 
+bayes_df$prior <- 1/1000000
 
 
 nTests <- 3
@@ -109,17 +109,17 @@ specificity <- 0.99
 
 bayes_df$likelihood <- dbinom(nPositives, nTests, 0.99)
 
-bayes_df$marginal_likelihood <- 
+bayes_df$marginal_likelihood <-
   dbinom(
-    x = nPositives, 
-    size = nTests, 
+    x = nPositives,
+    size = nTests,
     prob = sensitivity
-  ) * bayes_df$prior + 
+  ) * bayes_df$prior +
   dbinom(
-    x = nPositives, 
-    size = nTests, 
+    x = nPositives,
+    size = nTests,
     prob = 1 - specificity
-  ) * 
+  ) *
   (1 - bayes_df$prior)
 
 bayes_df$posterior <- (bayes_df$likelihood * bayes_df$prior) / bayes_df$marginal_likelihood
@@ -166,7 +166,7 @@ In the previous example there were only two possible outcomes -- the explosive i
 ```
 
 
-In this case, we don't have any prior information about the effectiveness of the drug, so we will use a *uniform distribution* as our prior, since all values are equally likely under a uniform distribution.  In order to simplify the example, we will only look at a subset of 99 possible values of effectiveness (from .01 to .99, in steps of .01). Therefore, each possible value has a prior probability of 1/99. 
+In this case, we don't have any prior information about the effectiveness of the drug, so we will use a *uniform distribution* as our prior, since all values are equally likely under a uniform distribution.  In order to simplify the example, we will only look at a subset of 99 possible values of effectiveness (from .01 to .99, in steps of .01). Therefore, each possible value has a prior probability of 1/99.
 
 ### Collect some data
 
@@ -201,7 +201,7 @@ likeDf <-
     likelihood3 = dbinom(resp,100,.3)
 )
 
-ggplot(likeDf,aes(resp,likelihood5)) + 
+ggplot(likeDf,aes(resp,likelihood5)) +
   geom_line() +
   xlab('number of responders') + ylab('likelihood') +
   geom_vline(xintercept = drugDf$number[1],color='blue') +
@@ -213,7 +213,7 @@ ggplot(likeDf,aes(resp,likelihood5)) +
 
 ### Computing the marginal likelihood
 
-In addition to the likelihood of the data under different hypotheses, we need to know the overall likelihood of the data, combining across all hypotheses (i.e., the marginal likelihood). This marginal likelihood is primarily important because it helps to ensure that the posterior values are true probabilities. In this case, our use of a set of discrete possible parameter values makes it easy to compute the marginal likelihood, because we can just compute the likelihood of each parameter value under each hypothesis and add them up. 
+In addition to the likelihood of the data under different hypotheses, we need to know the overall likelihood of the data, combining across all hypotheses (i.e., the marginal likelihood). This marginal likelihood is primarily important because it helps to ensure that the posterior values are true probabilities. In this case, our use of a set of discrete possible parameter values makes it easy to compute the marginal likelihood, because we can just compute the likelihood of each parameter value under each hypothesis and add them up.
 
 ```{r ,echo=FALSE}
 #  *MH:*not sure there’s a been clear discussion of the marginal likelihood up this point. it’s a confusing and also very deep construct..  the overall likelihood of the data is the likelihood of the data under each hypothesis, averaged together (weighted by) the prior probability of those hypotheses. it is how likely the data is under your prior beliefs about the hypotheses.
@@ -223,17 +223,17 @@ In addition to the likelihood of the data under different hypotheses, we need to
 
 ```{r echo=FALSE}
 # compute marginal likelihood
-likeDf <- 
+likeDf <-
   likeDf %>%
   mutate(uniform_prior = array(1 / n()))
 
 # multiply each likelihood by prior and add them up
-marginal_likelihood <- 
+marginal_likelihood <-
   sum(
     dbinom(
       x = nResponders, # the number who responded to the drug
       size = 100, # the number tested
-      likeDf$presp # the likelihood of each response 
+      likeDf$presp # the likelihood of each response
     ) * likeDf$uniform_prior
   )
 
@@ -251,8 +251,8 @@ bayesDf <-
   ) %>%
   mutate(
     likelihoods = dbinom(
-      x = nResponders, 
-      size = 100, 
+      x = nResponders,
+      size = 100,
       prob = steps
     ),
     priors = dunif(steps) / length(steps),
@@ -263,10 +263,10 @@ bayesDf <-
 ```{r posteriorDist,echo=FALSE,fig.cap="Posterior probability distribution for the observed data plotted in solid line against uniform prior distribution (dotted line). The maximum a posteriori (MAP) value is signified by the diamond symbol.",fig.width=4,fig.height=4,out.height='50%'}
 
 # compute MAP estimate
-MAP_estimate <- 
-  bayesDf %>% 
-  arrange(desc(posteriors)) %>% 
-  slice(1) %>% 
+MAP_estimate <-
+  bayesDf %>%
+  arrange(desc(posteriors)) %>%
+  slice(1) %>%
   pull(steps)
 
 
@@ -278,9 +278,9 @@ ggplot(bayesDf,aes(steps,posteriors)) +
   geom_line(aes(steps,priors),color='black',linetype='dotted') +
   xlab('p(respond)') + ylab('posterior probability of the observed data') +
   annotate(
-    "point", 
-    x = MAP_estimate, 
-    y = max(bayesDf$posteriors), shape=9, 
+    "point",
+    x = MAP_estimate,
+    y = max(bayesDf$posteriors), shape=9,
     size = 3
   )
 
@@ -316,7 +316,7 @@ In the previous example we used a *flat prior*, meaning that we didn't have any 
 ```
 
 ```{r echo=FALSE}
-# compute likelihoods for data under all values of p(heads) 
+# compute likelihoods for data under all values of p(heads)
 # using a flat or empirical prior.  
 # here we use the quantized values from .01 to .99 in steps of 0.01
 
@@ -330,18 +330,18 @@ df <-
     priors_empirical = dbinom(10, 20, steps) / sum(dbinom(10, 20, steps))
   )
 
-marginal_likelihood_flat <- 
+marginal_likelihood_flat <-
   sum(dbinom(nResponders, 100, df$steps) * df$priors_flat)
 
-marginal_likelihood_empirical <- 
+marginal_likelihood_empirical <-
   sum(dbinom(nResponders, 100, df$steps) * df$priors_empirical)
 
-df <- 
+df <-
   df %>%
   mutate(
-    posteriors_flat = 
+    posteriors_flat =
       (likelihoods * priors_flat) / marginal_likelihood_flat,
-    posteriors_empirical = 
+    posteriors_empirical =
       (likelihoods * priors_empirical) / marginal_likelihood_empirical
   )
 
@@ -366,7 +366,7 @@ df <-
     priors_strong = dbinom(250, 500, steps) / sum(dbinom(250, 500, steps))
   )
 
-marginal_likelihood_strong <- 
+marginal_likelihood_strong <-
   sum(dbinom(nResponders, 100, df$steps) * df$priors_strong)
 
 df <-
@@ -375,8 +375,8 @@ df <-
     posteriors_strongprior = (likelihoods * priors_strong) / marginal_likelihood_strong
   )
 
-p2 <- ggplot(df,aes(steps,posteriors_empirical)) + 
-  geom_line(color='blue') + 
+p2 <- ggplot(df,aes(steps,posteriors_empirical)) +
+  geom_line(color='blue') +
   xlab('p(heads)') + ylab('Posterior probability') +
   geom_line(aes(steps,posteriors_strongprior),color='red') +
   geom_line(aes(steps,priors_strong),linetype='dotted')
@@ -390,7 +390,7 @@ This example also highlights the sequential nature of Bayesian analysis -- the p
 Finally, it is important to realize that if the priors are strong enough, they can completely overwhelm the data.  Let's say that you have an absolute prior that $p_{respond}$ is 0.8 or greater, such that you set the prior likelihood of all other values to zero.  What happens if we then compute the posterior?
 
 ```{r echo=FALSE}
-# compute likelihoods for data under all values of p(respond) using absolute prior. 
+# compute likelihoods for data under all values of p(respond) using absolute prior.
 df <-
   df %>%
   mutate(
@@ -402,13 +402,13 @@ df <-
     priors_absolute = priors_absolute / sum(priors_absolute)
   )
 
-marginal_likelihood_absolute <- 
+marginal_likelihood_absolute <-
   sum(dbinom(nResponders, 100, df$steps) * df$priors_absolute)
 
 df <-
   df %>%
   mutate(
-    posteriors_absolute = 
+    posteriors_absolute =
       (likelihoods * priors_absolute) / marginal_likelihood_absolute
   )
 
@@ -416,11 +416,11 @@ df <-
 
 ```{r posteriorDistPrior,echo=FALSE,fig.cap="A: Effects of priors on the posterior distribution.  The original posterior distribution based on a flat prior is plotted in blue. The prior based on the observation of 10 responders out of 20 people is plotted in the dotted black line, and the posterior using this prior is plotted in red.  B: Effects of the strength of the prior on the posterior distribution. The blue line shows the posterior obtained using the prior based on 50 heads out of 100 people.  The dotted black line shows the prior based on 250 heads out of 500 flips, and the red line shows the posterior based on that prior. C: Effects of the strength of the prior on the posterior distribution. The blue line shows the posterior obtained using an absolute prior which states that p(respond) is 0.8 or greater.  The prior is shown in the dotted black line.",fig.width=8,fig.height=8,out.width='80%'}
 
-p3 <- ggplot(df,aes(steps,posteriors_absolute)) + 
-  geom_line(color='blue') + 
-  xlab('p(heads)') + 
+p3 <- ggplot(df,aes(steps,posteriors_absolute)) +
+  geom_line(color='blue') +
+  xlab('p(heads)') +
   ylab('Posterior probability') +
-  ylim(0,max(df$posteriors_absolute)*1.1) + 
+  ylim(0,max(df$posteriors_absolute)*1.1) +
   geom_line(aes(steps,
             priors_absolute*max(df$posteriors_absolute)*20),
             linetype='dotted',
@@ -454,8 +454,8 @@ bf <-
     size = 1000,
     prob = 0.4 #Smith's hypothesis
   ) / dbinom(
-    x = 490, 
-    size = 1000, 
+    x = 490,
+    size = 1000,
     prob = 0.6 #Jones' hypothesis
   )
 
@@ -579,7 +579,7 @@ After reading this chapter, should be able to:
 - *The Theory That Would Not Die: How Bayes' Rule Cracked the Enigma Code, Hunted Down Russian Submarines, and Emerged Triumphant from Two Centuries of Controversy*, by Sharon Bertsch McGrayne
 - *Doing Bayesian Data Analysis: A Tutorial Introduction with R*, by John K. Kruschke  
 
-## Appendix: 
+## Appendix:
 
 ### Rejection sampling
 
@@ -601,7 +601,7 @@ fx <- dbinom(x = nResponders, size = 100, prob = x)
 accept <- which(y < fx)
 accepted_samples <- x[accept]
 
-credible_interval <- quantile(x = accepted_samples, 
+credible_interval <- quantile(x = accepted_samples,
                               probs = c(0.025, 0.975))
 kable(credible_interval)
 ```
@@ -610,14 +610,12 @@ kable(credible_interval)
 
 # plot histogram
 
-p=ggplot(data.frame(samples=accepted_samples),aes(samples)) + 
+p=ggplot(data.frame(samples=accepted_samples),aes(samples)) +
   geom_density()
 
 for (i in 1:2) {
   p = p + annotate('segment',x=credible_interval[i],xend=credible_interval[i],
-           y=0,yend=2,col='blue',lwd=1) 
-} 
+           y=0,yend=2,col='blue',lwd=1)
+}
 print(p)
 ```
-
-

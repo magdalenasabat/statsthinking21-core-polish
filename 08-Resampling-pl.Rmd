@@ -1,0 +1,197 @@
+---
+wyjście:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+  html_document: default
+---
+# Resampling i symulacja
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(knitr)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# załaduj bibliotekę danych NHANES
+library(NHANES)
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES <- NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <- NHANES %>%
+  drop_na(Height) %>%
+  subset(Wiek>=18)
+
+
+```
+
+Zastosowanie symulacji komputerowych stało się istotnym aspektem współczesnej statystyki. Na przykład jedna z najważniejszych książek z zakresu praktycznej informatyki, o nazwie *Numerical Recipes*, mówi co następuje:
+
+> "Oferując wybór pomiędzy opanowaniem pięciostopowej półki książek o statystyce analitycznej a średnią umiejętnością wykonywania statystycznych symulacji Monte Carlo, z pewnością wybralibyśmy tę drugą umiejętność."
+
+W tym rozdziale wprowadzimy pojęcie symulacji Monte Carlo i omówimy, jak można ją wykorzystać do wykonywania analiz statystycznych.
+
+## Symulacja Monte Carlo
+
+Koncepcję symulacji Monte Carlo wymyślili matematycy Stan Ulam i Nicholas Metropolis, którzy w ramach Projektu Manhattan pracowali nad stworzeniem broni atomowej dla USA. Musieli obliczyć średnią odległość, jaką pokona neutron w substancji, zanim zderzy się z jądrem atomowym, ale nie mogli tego obliczyć za pomocą standardowej matematyki.
+Ulam zdał sobie sprawę, że te obliczenia mogą być symulowane przy użyciu liczb losowych, tak jak w grze w kasynie. W grze w kasynie, takiej jak koło ruletki, liczby są generowane losowo; aby oszacować prawdopodobieństwo określonego wyniku, można by grać setki razy. Wujek Ulama grał w kasynie Monte Carlo w Monako i stąd wzięła się nazwa tej nowej techniki.
+
+Przeprowadzenie symulacji Monte Carlo składa się z czterech kroków:
+
+1. Określenie dziedziny możliwych wartości
+2. Wygenerowanie liczb losowych w tej dziedzinie z rozkładu prawdopodobieństwa
+3. Wykonać obliczenia z wykorzystaniem liczb losowych
+4. Połącz wyniki w wielu powtórzeniach
+
+Jako przykład, powiedzmy, że chcę dowiedzieć się, ile czasu należy przeznaczyć na quiz w klasie.  Udamy na razie, że wiemy, że rozkład czasu rozwiązywania quizu jest normalny, ze średnią 5 minut i odchyleniem standardowym 1 minuty.  Biorąc to pod uwagę, jak długi powinien być czas trwania testu, abyśmy oczekiwali, że wszyscy uczniowie ukończą go w 99% przypadków? Istnieją dwa sposoby rozwiązania tego problemu.  Pierwszym jest obliczenie odpowiedzi przy użyciu teorii matematycznej znanej jako statystyka wartości ekstremalnych. Wiąże się to jednak ze skomplikowaną matematyką. Alternatywnie, możemy użyć symulacji Monte Carlo.  Aby to zrobić, musimy wygenerować losowe próbki z rozkładu normalnego.  
+
+## Losowość w statystyce
+
+Termin "losowy" jest często używany potocznie w odniesieniu do rzeczy, które są dziwaczne lub nieoczekiwane, ale w statystyce termin ten ma bardzo konkretne znaczenie: Proces jest *losowy*, jeśli jest nieprzewidywalny.  Na przykład, jeśli rzucę uczciwą monetą 10 razy, wartość wyniku przy jednym rzucie nie dostarcza mi żadnych informacji, które pozwoliłyby mi przewidzieć wynik przy następnym rzucie. Ważne jest, aby zauważyć, że fakt, że coś jest nieprzewidywalne, nie musi oznaczać, że nie jest deterministyczne.  Na przykład, kiedy rzucamy monetą, wynik rzutu jest określony przez prawa fizyki; gdybyśmy znali wszystkie warunki wystarczająco szczegółowo, powinniśmy być w stanie przewidzieć wynik rzutu.  Jednak wiele czynników sprawia, że wynik rzutu monetą jest w praktyce nieprzewidywalny.
+
+Psychologowie wykazali, że ludzie mają dość słabe wyczucie losowości. Po pierwsze, mamy tendencję do dostrzegania wzorców, gdy one nie istnieją. W skrajnym przypadku prowadzi to do zjawiska *pareidolii*, w którym ludzie postrzegają znajome obiekty w ramach przypadkowych wzorów (np. postrzegają chmurę jako ludzką twarz lub widzą Matkę Boską w kawałku tosta).  Po drugie, ludzie mają tendencję do myślenia o procesach losowych jako samonaprawiających się, co prowadzi nas do oczekiwania, że "należy nam się wygrana" po przegraniu wielu rund w grze losowej, zjawisko znane jako "błąd hazardzisty".
+
+## Generowanie liczb losowych {#generating-random-numbers}
+
+Uruchomienie symulacji Monte Carlo wymaga wygenerowania liczb losowych.  Generowanie prawdziwie losowych liczb (tj. liczb, które są całkowicie nieprzewidywalne) jest możliwe tylko poprzez procesy fizyczne, takie jak rozpad atomów lub rzucanie kostką do gry, które są trudne do uzyskania i/lub zbyt wolne, aby mogły być użyteczne w symulacji komputerowej (choć można je uzyskać z [NIST Randomness Beacon](https://www.nist.gov/programs-projects/nist-randomness-beacon]).
+
+Ogólnie rzecz biorąc, zamiast prawdziwie losowych liczb używamy *pseudolosowych* liczb wygenerowanych za pomocą algorytmu komputerowego; te liczby będą wydawać się losowe w tym sensie, że są trudne do przewidzenia, ale seria liczb w rzeczywistości będzie się w pewnym momencie powtarzać.  Na przykład generator liczb losowych używany w R będzie powtarzał po $2^{19937} - 1$ liczby.  To znacznie więcej niż liczba sekund w historii wszechświata i ogólnie uważamy, że jest to w porządku dla większości celów w analizie statystycznej.
+
+Większość oprogramowania statystycznego zawiera funkcje generowania liczb losowych dla każdego z głównych rozkładów prawdopodobieństwa, takich jak rozkład jednostajny (wszystkie wartości od 0 do 1 jednakowo), rozkład normalny i rozkład dwumianowy (np. toczenie kości, rzuty monetą).  Rysunek pokazuje przykłady liczb wygenerowanych z funkcji rozkładu jednostajnego i normalnego.
+
+`{r rngExamples,echo=FALSE, fig.cap="Przykłady liczb losowych wygenerowanych z rozkładu jednostajnego (po lewej) lub normalnego (po prawej).",fig.width=8,fig.height=4,out.height='50%'}
+
+p1 <-
+  tibble(
+    x = runif(10000)
+  ) %>%
+  ggplot((aes(x))) +
+  geom_histogram(bins = 100) +
+  labs(title = "Uniform")
+
+p2 <-
+  tibble(
+    x = rnorm(10000)
+  ) %>%
+  ggplot(aes(x)) +
+  geom_histogram(bins = 100) +
+  labs(title = "Normal")
+
+plot_grid(p1, p2, ncol = 3)
+```
+
+Można również generować liczby losowe dla dowolnego rozkładu używając *kwantylowej* funkcji dla rozkładu. Jest to odwrotność funkcji rozkładu skumulowanego; zamiast identyfikować skumulowane prawdopodobieństwa dla zestawu wartości, funkcja kwantyla identyfikuje wartości dla zestawu skumulowanych prawdopodobieństw. Używając funkcji kwantyla, możemy generować liczby losowe z rozkładu jednostajnego, a następnie odwzorować je na interesujący nas rozkład poprzez jego funkcję kwantyla.   
+
+Domyślnie generatory liczb losowych w oprogramowaniu statystycznym generują inny zestaw liczb losowych za każdym razem, gdy są uruchamiane. Możliwe jest jednak wygenerowanie dokładnie takiego samego zestawu liczb losowych, poprzez ustawienie tzw. nasiona losowego na określoną wartość.  Gdybyś miał zajrzeć do kodu, który wygenerował te liczby, Będziemy to robić w wielu przykładach w tej książce, aby upewnić się, że przykłady są powtarzalne.
+
+## Użycie symulacji Monte Carlo
+
+Wróćmy do naszego przykładu z czasami zakończenia egzaminów. Powiedzmy, że zarządzam trzema quizami i rejestruję czasy ukończenia każdego studenta dla każdego egzaminu, które mogą wyglądać jak rozkłady przedstawione na rysunku \N(fig:finishingTimes).
+
+``{r finishingTimes, echo=FALSE,fig.cap="Symulowane rozkłady czasów ukończenia.",fig.width=8,fig.height=4,out.height='50%'}
+finishTimeDf <- tibble(finishTime=rnorm(3*150,mean=5,sd=1),
+                        quiz=kronecker(c(1:3),rep(1,150)))
+
+ggplot(finishTimeDf,aes(finishTime)) +
+  geom_histogram(bins=25) +
+  facet_grid(. ~ quiz) +
+   xlim(0,10)
+
+```
+
+To, co naprawdę chcemy wiedzieć, aby odpowiedzieć na nasze pytanie, to nie to, jak wygląda rozkład czasów zakończenia, ale raczej to, jak wygląda rozkład *najdłuższego* czasu zakończenia dla każdego quizu.  Aby to zrobić, możemy symulować czas ukończenia quizu, używając założenia, że czasy ukończenia są rozłożone normalnie, jak stwierdzono powyżej; dla każdego z tych symulowanych quizów zapisujemy najdłuższy czas ukończenia. Powtarzamy tę symulację dużą liczbę razy (5000 powinno wystarczyć) i rejestrujemy rozkład czasów ukończenia, który jest pokazany na rysunku \N(fig:finishTimeSim).
+
+``{r finishTimeSim,echo=FALSE,fig.cap="Distribution of maximum finishing times across simulations.",fig.width=4,fig.height=4,out.height='50%'}
+
+# próbkuj maksymalną wartość 5000 razy i oblicz 99 percentyl
+nRuns <- 5000
+sampSize <- 150
+
+sampleMax <- function(sampSize = 150) {
+  samp <- rnorm(sampSize, mean = 5, sd = 1)
+  return(max(samp))
+}
+
+maxTime <- replicate(nRuns, sampleMax())
+
+cutoff <- quantile(maxTime, 0.99)
+
+tibble(maxTime) %>%
+  ggplot(aes(maxTime)) +
+  geom_histogram(bins = 100) +
+  geom_vline(xintercept = cutoff, color = "red")
+
+```
+
+Pokazuje to, że 99 percentyl rozkładu czasu ukończenia spada przy `r I(cutoff)`, co oznacza, że gdybyśmy dali tyle czasu na quiz, to każdy powinien ukończyć go w 99%. Zawsze należy pamiętać, że nasze założenia mają znaczenie -- jeśli są błędne, to wyniki symulacji są bezużyteczne. W tym przypadku założyliśmy, że rozkład czasu ukończenia jest rozkładem normalnym z określoną średnią i odchyleniem standardowym; jeśli te założenia są błędne (a prawie na pewno są, ponieważ rzadko zdarza się, aby czas, który upłynął, był rozkładem normalnym), to prawdziwa odpowiedź może być zupełnie inna.
+
+## Wykorzystanie symulacji w statystyce: The bootstrap
+
+Do tej pory używaliśmy symulacji do demonstracji zasad statystyki, ale możemy również użyć symulacji do odpowiedzi na prawdziwe pytania statystyczne.  W tym rozdziale przedstawimy koncepcję znaną jako *bootstrap*, która pozwala nam użyć symulacji do ilościowego określenia naszej niepewności co do oszacowań statystycznych. W dalszej części kursu zobaczymy inne przykłady tego, jak symulacja może być często wykorzystywana do odpowiedzi na pytania statystyczne, zwłaszcza gdy teoretyczne metody statystyczne nie są dostępne lub gdy ich założenia są zbyt trudne do spełnienia.
+
+### Obliczanie bootstrapu
+
+W poprzednim rozdziale wykorzystaliśmy naszą wiedzę o próbkowym rozkładzie średniej, aby obliczyć błąd standardowy średniej.  Ale co zrobić, gdy nie możemy założyć, że oszacowania mają rozkład normalny, lub nie znamy ich rozkładu?  Ideą bootstrapu jest użycie samych danych do oszacowania odpowiedzi.  Nazwa pochodzi od idei podciągania się za własne sznurki, co wyraża ideę, że nie mamy żadnego zewnętrznego źródła dźwigni, więc musimy polegać na samych danych.  Metoda bootstrap została wymyślona przez Bradleya Efrona ze Stanford Department of Statistics, który jest jednym z najbardziej wpływowych statystyków na świecie.
+
+Idea bootstrapu polega na tym, że wielokrotnie pobieramy próbki z rzeczywistego zbioru danych; co ważne, pobieramy próbki *z zastąpieniem*, tak że ten sam punkt danych będzie często reprezentowany wielokrotnie w jednej z próbek.  Następnie obliczamy naszą interesującą statystykę na każdej z próbek bootstrapowych i używamy rozkładu tych szacunków jako naszego rozkładu próbkowania.  W pewnym sensie traktujemy naszą konkretną próbkę jako całą populację, a następnie wielokrotnie próbkujemy z zastąpieniem, aby wygenerować nasze próbki do analizy.  To czyni założenie, że nasza konkretna próbka jest dokładnym odzwierciedleniem populacji, co jest prawdopodobnie rozsądne dla większych próbek, ale może się załamać, gdy próbki są mniejsze.
+
+Zacznijmy od użycia bootstrapu do oszacowania rozkładu próbkowania średniej wysokości dorosłych w zbiorze danych NHANES, abyśmy mogli porównać wynik z błędem standardowym średniej (SEM), który omówiliśmy wcześniej.
+
+``{r echo=FALSE}
+# wykonaj bootstrap, aby obliczyć SEM i porównać z metodą parametryczną
+
+nRuns <- 2500
+sampleSize <- 32
+
+heightSample <-
+  NHANES_adult %>%
+  sample_n(sampleSize)
+
+bootMeanHeight <- function(df) {
+  bootSample <- sample_n(df, dim(df)[1], replace = TRUE)
+  return(mean(bootSample$Height))
+}
+
+bootMeans <- replicate(nRuns, bootMeanHeight(heightSample))
+
+SEM_standard <- sd(heightSample$Height) / sqrt(sampleSize)
+SEM_bootstrap <- sd(bootMeans)
+
+```
+
+``{r bootstrapSEM,echo=FALSE,fig.cap="Przykład bootstrapowania w celu obliczenia błędu standardowego średniej wysokości osoby dorosłej w zbiorze danych NHANES. Histogram pokazuje rozkład średnich w próbkach bootstrapowych, a czerwona linia pokazuje rozkład normalny oparty na średniej z próbki i odchyleniu standardowym.",fig.width=4,fig.height=4,out.height='50%'}
+
+options(pillar.sigfig = 3)
+
+tibble(bootMeans=bootMeans) %>%
+  ggplot(aes(bootMeans)) +
+    geom_histogram(aes(y=..density..),bins=50) +
+  stat_function(fun = dnorm, n = 100,
+                args = list(mean = mean(heightSample$Height),
+                            sd = SEM_standard),
+                size=1.5,color='red'
+                )
+
+```
+
+Rysunek pokazuje, że rozkład średnich w próbkach bootstrapowych jest dość bliski teoretycznemu oszacowaniu opartemu na założeniu normalności. Zazwyczaj nie stosujemy bootstrapu do obliczania przedziałów ufności dla średniej (ponieważ możemy ogólnie założyć, że rozkład normalny jest odpowiedni dla rozkładu próbkowania średniej, o ile nasza próba jest wystarczająco duża), ale ten przykład pokazuje, że metoda ta daje nam mniej więcej taki sam wynik jak standardowa metoda oparta na rozkładzie normalnym.  Częściej bootstrap byłby używany do generowania błędów standardowych dla oszacowań innych statystyk, gdzie wiemy lub podejrzewamy, że rozkład normalny nie jest odpowiedni.  Ponadto w późniejszym rozdziale zobaczysz, w jaki sposób możemy również wykorzystać próbki bootstrapowe do generowania oszacowań niepewności w naszej próbce statystycznej.
+
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Opisać pojęcie symulacji Monte Carlo.
+* Opisać znaczenie losowości w statystyce
+* Opisać, jak generowane są liczby pseudolosowe
+* Opisać koncepcję bootstrapu
+
+## Sugerowane lektury
+
+- *Computer Age Statistical Inference: Algorytmy, dowody i nauka o danych*, autorstwa Bradleya Efrona i Trevora Hastiego

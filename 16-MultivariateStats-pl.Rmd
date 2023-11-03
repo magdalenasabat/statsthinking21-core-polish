@@ -1,0 +1,726 @@
+---
+output:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+
+# Multivariate statistics {#multivariate}
+
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+# import MASS first because it otherwise will mask dplyr::select
+library(MASS)
+
+library(tidyverse)
+library(ggdendro)
+library(psych)
+library(gplots)
+library(pdist)
+library(factoextra)
+library(viridis)
+library(mclust)
+theme_set(theme_minimal())
+```
+
+Termin *wieloczynnikowy* odnosi się do analiz, które obejmują więcej niż jedną zmienną losową. W poprzednich przykładach, w których model zawierał wiele zmiennych (jak w regresji liniowej), w tych przypadkach byliśmy zainteresowani tym, jak zmienność *zmiennej zależnej* może być wyjaśniona pod względem jednej lub więcej *zmiennych niezależnych*, które są zwykle określone przez eksperymentatora, a nie mierzone.   W analizie wieloczynnikowej wszystkie zmienne traktujemy jako równe i staramy się zrozumieć, w jaki sposób odnoszą się one do siebie jako grupa.
+
+Istnieje wiele różnych rodzajów analizy wielowariantowej, ale w tym rozdziale skupimy się na dwóch głównych podejściach.  Po pierwsze, możemy po prostu chcieć zrozumieć i zwizualizować strukturę istniejącą w danych, przez co zwykle rozumiemy, które zmienne lub obserwacje są powiązane z którymi innymi.  Zwykle definiujemy "powiązany" w kategoriach pewnej miary, która indeksuje odległość między wartościami w różnych zmiennych.  Jedną z ważnych metod, która mieści się w tej kategorii, jest *klasteryzacja*, której celem jest znalezienie skupisk zmiennych lub obserwacji, które są podobne w różnych zmiennych.
+
+Po drugie, możemy chcieć wziąć dużą liczbę zmiennych i zredukować je do mniejszej liczby zmiennych w taki sposób, aby zachować jak najwięcej informacji.  Nazywa się to *redukcją wymiarowości*, gdzie "wymiarowość" odnosi się do liczby zmiennych w zbiorze danych.  Omówimy dwie techniki powszechnie stosowane do redukcji wymiarowości, znane jako *principal component analysis* i *factor analysis*.
+
+Klasteryzacja i redukcja wymiarowości są często klasyfikowane jako formy *nienadzorowanego uczenia*; jest to przeciwieństwo *nadzorowanego uczenia*, które charakteryzuje modele takie jak regresja liniowa, o której uczyliśmy się do tej pory.  Powodem, dla którego uważamy regresję liniową za "nadzorowaną" jest to, że znamy wartość rzeczy, którą próbujemy przewidzieć (tj. zmienną zależną) i próbujemy znaleźć model, który najlepiej przewiduje te wartości.  W uczeniu nienadzorowanym nie mamy konkretnej wartości, którą próbujemy przewidzieć; zamiast tego próbujemy odkryć strukturę w danych, która może być przydatna do zrozumienia tego, co się dzieje, co generalnie wymaga pewnych założeń dotyczących tego, jaki rodzaj struktury chcemy znaleźć.
+
+Jedną z rzeczy, które odkryjesz w tym rozdziale, jest to, że o ile w przypadku uczenia nadzorowanego istnieje zazwyczaj "właściwa" odpowiedź (gdy już ustalimy, jak określić "najlepszy" model, np. sumę błędów kwadratowych), o tyle w przypadku uczenia nienadzorowanego często nie ma ustalonej "właściwej" odpowiedzi.  Różne metody uczenia bez nadzoru mogą dawać bardzo różne odpowiedzi na temat tych samych danych i zazwyczaj nie ma sposobu, by określić, która z nich jest "poprawna", ponieważ zależy to od celów analizy i założeń, które jesteśmy skłonni przyjąć na temat mechanizmów, które powodują powstawanie danych.  Niektórzy ludzie uważają to za frustrujące, a inni za zachwycające; od Ciebie zależy, do którego z tych obozów należysz.
+
+## Dane wielowymiarowe: Przykład
+
+Jako przykład analizy wielowariantowej przyjrzymy się zbiorowi danych zebranych przez moją grupę i opublikowanych przez Eisenberga i wsp. [@Eisenberg:2019um].  Ten zbiór danych jest przydatny zarówno dlatego, że ma dużą liczbę interesujących zmiennych zebranych na stosunkowo dużej liczbie osób, jak i dlatego, że jest swobodnie dostępny online, dzięki czemu można go zbadać na własną rękę.
+
+Badanie to zostało przeprowadzone, ponieważ byliśmy zainteresowani zrozumieniem, jak kilka różnych aspektów funkcji psychologicznych jest ze sobą powiązanych, skupiając się szczególnie na psychologicznych miarach samokontroli i powiązanych z nią koncepcjach.  Uczestnicy wykonywali dziesięciogodzinną baterię testów poznawczych i ankiet w ciągu tygodnia; w tym pierwszym przykładzie skupimy się na zmiennych związanych z dwoma specyficznymi aspektami samokontroli.  *Hamowanie reakcji* jest definiowane jako zdolność do szybkiego zaprzestania działania i w tym badaniu było mierzone za pomocą zestawu zadań znanych jako *zadania z sygnałem zatrzymania*. Zmienna interesująca w tych zadaniach to szacunkowa ocena czasu, jaki zajmuje danej osobie zatrzymanie się, znana jako *czas reakcji na sygnał zatrzymania* (*SSRT*), przy czym w zestawie danych znajdują się cztery różne miary.  *Impulsywność* jest definiowana jako tendencja do podejmowania decyzji pod wpływem impulsu, bez uwzględnienia potencjalnych konsekwencji i celów długoterminowych.  W badaniu uwzględniono kilka różnych ankiet mierzących impulsywność, ale my skupimy się na ankiecie *UPPS-P*, która ocenia pięć różnych aspektów impulsywności.
+
+Po obliczeniu tych wyników dla każdego z 522 uczestników badania Eisenberga, otrzymujemy 9 liczb dla każdej osoby.  Podczas gdy dane wielowymiarowe mogą czasami zawierać tysiące lub nawet miliony zmiennych, warto najpierw zobaczyć, jak metody działają z małą liczbą zmiennych.
+
+``{r DataPrep, echo=FALSE, message=FALSE}
+
+behavdata <- read_csv('data/Eisenberg/meaningful_variables.csv'
+                      show_col_types = FALSE)
+demoghealthdata <- read_csv('data/Eisenberg/demographic_health.csv',
+                            show_col_types = FALSE)
+
+# przekoduj zmienną Sex z 0/1 na Male/Female
+demoghealthdata <- demoghealthdata %>%
+  mutate(Sex = recode_factor(Sex, `0`="Male", `1`="Female"))
+
+# połącz dane w jedną ramkę danych według podkodu
+alldata <- merge(behavdata, demoghealthdata, by='subcode')
+
+rename_list = list('upps_impulsivity_survey' = 'UPPS', 'sensation_seeking_survey' = 'SSS',
+                   'dickman_survey' = 'Dickman', 'bis11_survey' = 'BIS11',
+                   'spatial_span' = 'przestrzenny', 'digit_span' = 'cyfrowy',
+                   'adaptive_n_back' = 'nback', 'dospert_rt_survey' = 'dospert',
+                   'motor_selective_stop_signal.SSRT' = 'SSRT_motorsel',
+                   'stim_selective_stop_signal.SSRT' = 'SSRT_stimsel',
+                   'stop_signal.SSRT_low' = 'SSRT_low',
+                   'stop_signal.SSRT_high' = 'SSRT_high')
+
+impulsywność_zmienne = c('Sex')
+
+keep_variables <- c("spatial.forward_span", "spatial.reverse_span", "digit.forward_span", "digit.reverse_span", "nback.mean_load")
+
+for (potential_match in names(alldata)){
+  for (n in names(rename_list)){
+    if (str_detect(potential_match, n)){
+      # print(sprintf('znaleziono dopasowanie: %s %s', n, potential_match))
+      replacement_name <- str_replace(potential_match, n, toString(rename_list[n]))
+      names(alldata)[names(alldata) == potential_match] <- replacement_name
+      impulsywność_zmienne <- c(impulsywność_zmienne, replacement_name)
+    }
+  }
+}
+
+impulsywność_dane <- alldata[,impulsywność_zmienne] %>%
+  drop_na()
+
+
+ssrtdata = alldata[,c('subcode', names(alldata)[grep('SSRT_', names(alldata))])] %>%
+  drop_na() %>%
+  dplyr::select(-stop_signal.proactive_SSRT_speeding)
+
+upps_data <- alldata %>%
+  dplyr::select(starts_with('UPPS'), 'subcode') %>%
+  setNames(gsub("UPPS.", "", names(.)))
+
+impdata <- inner_join(ssrtdata, upps_data) %>%
+  drop_na() %>%
+  dplyr::select(-subcode) %>%
+  scale() %>%
+  as.data.frame() %>%
+  dplyr::rename(SSRT_motor = SSRT_motorsel,
+                SSRT_stim = SSRT_stimsel,
+                UPPS_pers = brak_odpowiedzialności,
+                UPPS_premed = brak_premedytacji,
+                UPPS_negurg = negatywna_niepewność,
+                UPPS_posurg = positive_urgency,
+                UPPS_senseek = poszukiwanie wrażeń
+                )
+```
+
+
+## Wizualizacja danych wielowymiarowych
+
+Podstawowym wyzwaniem związanym z danymi wielowymiarowymi jest to, że ludzkie oko i mózg nie są po prostu przystosowane do wizualizacji danych w więcej niż trzech wymiarach.  Istnieje wiele narzędzi, których możemy użyć do wizualizacji danych wielowymiarowych, ale wszystkie one psują się wraz ze wzrostem liczby zmiennych. Gdy liczba zmiennych staje się zbyt duża, aby ją bezpośrednio zwizualizować, jednym z podejść jest najpierw zredukowanie liczby wymiarów (co omówiono poniżej), a następnie zwizualizowanie zredukowanego zbioru danych.
+
+### Rozrzut macierzy
+
+Jednym z użytecznych sposobów wizualizacji małej liczby zmiennych jest wykreślenie każdej pary zmiennych względem siebie, czasami znane jako "scatterplot of matrices"; Przykład pokazany jest na rysunku \(fig:pairpanel). Każdy rząd/kolumna w panelu odnosi się do pojedynczej zmiennej - w tym przypadku jednej z naszych zmiennych psychologicznych z wcześniejszego przykładu.  Elementy na przekątnej wykresu pokazują rozkład każdej zmiennej w postaci histogramu.  Elementy poniżej przekątnej pokazują rozrzut dla każdej pary macierzy, nałożony na linię regresji opisującą związek między zmiennymi.  Elementy powyżej przekątnej pokazują współczynnik korelacji dla każdej pary zmiennych.  Gdy liczba zmiennych jest stosunkowo mała (około 10 lub mniej) może to być użyteczny sposób na uzyskanie dobrego wglądu w wielowariantowy zbiór danych.
+
+``{r pairpanel, echo=FALSE, fig.width=8, fig.height=8, fig.cap='Rozrzut macierzy dla dziewięciu zmiennych w zbiorze danych o samokontroli.  Elementy diagonalne macierzy pokazują histogram dla każdej z poszczególnych zmiennych.  Dolne lewe panele pokazują rozproszone wykresy zależności między każdą parą zmiennych, a górny prawy panel pokazuje współczynnik korelacji dla każdej pary zmiennych.'}
+pairs.panels(impdata, lm=TRUE)
+```
+
+### Mapa ciepła
+
+W niektórych przypadkach chcemy zwizualizować zależności pomiędzy dużą liczbą zmiennych jednocześnie, zwykle skupiając się na współczynniku korelacji. Przydatnym sposobem może być wykreślenie wartości korelacji jako *heatmapy*, w której kolor mapy odnosi się do wartości korelacji.  Rysunek pokazuje przykład ze stosunkowo małą liczbą zmiennych, wykorzystując nasz przykład psychologiczny z góry.  W tym przypadku mapa cieplna pomaga nam dostrzec strukturę danych; widzimy, że istnieją silne współzależności w obrębie zmiennych SSRT i UPPS, przy stosunkowo niewielkiej korelacji pomiędzy tymi dwoma zestawami zmiennych.
+
+
+``{r hmap, echo=FALSE, fig.width=8, fig.height=8, fig.cap="Heatmap of the correlation matrix for the nine self-control variables.  Jaśniejsze żółte obszary w lewym górnym i prawym dolnym rogu podkreślają wyższe korelacje w obrębie dwóch podzbiorów zmiennych.'}
+cc = cor(impdata)
+par(mai=c(2, 1, 1, 1)+0.1)
+
+heatmap.2(cc, trace='none', dendrogram='none',
+          cellnote=round(cc, 2), notecol='black', key=FALSE,
+          margins=c(12,8), srtCol=45, symm=TRUE, revC=TRUE, #notecex=4,
+          cexRow=1, cexCol=1, offsetRow=-150, col=viridis(50))
+
+```
+
+Heatmapy stają się szczególnie przydatne do wizualizacji korelacji pomiędzy dużą liczbą zmiennych.  Jako przykład możemy wykorzystać dane z obrazowania mózgu. Powszechne dla badaczy neuronauk jest zbieranie danych o funkcjonowaniu mózgu z dużej liczby miejsc w mózgu za pomocą funkcjonalnego rezonansu magnetycznego (fMRI), a następnie ocena korelacji między tymi miejscami, aby zmierzyć "łączność funkcji" między regionami. Na przykład, rysunek \(fig:parcelheatmap) pokazuje mapę cieplną dla dużej macierzy korelacji, opartej na aktywności w ponad 300 regionach w mózgu pojedynczej osoby (naprawdę).  Obecność wyraźnej struktury w danych wyskakuje po prostu przez spojrzenie na mapę ciepła.  W szczególności widzimy, że istnieją duże zestawy regionów mózgu, których aktywność jest silnie skorelowana ze sobą (widoczne w dużych żółtych blokach wzdłuż przekątnej macierzy korelacji), podczas gdy te bloki są również silnie negatywnie skorelowane z innymi blokami (widoczne w dużych niebieskich blokach widocznych poza przekątną).  Mapy ciepła są potężnym narzędziem do łatwej wizualizacji dużych matryc danych.
+
+``{r parceldata, echo=FALSE, message=FALSE, warning=FALSE}
+ccmtx = read_delim('data/myconnectome/ccmtx_sorted.txt', col_names=FALSE,show_col_types = FALSE)
+
+parcel_data = read_delim('data/myconnectome/parcel_data.txt', col_names = FALSE,show_col_types = FALSE) %>% dplyr::select(-X1)
+names(parcel_data) = c('hemis', 'X', 'Y', 'Z', 'lobe',
+                         'region', 'sieć', 'yeo7network', 'yeo17network')
+parcel_data <- parcel_data %>%
+  arrange(hemis, yeo7network)
+parcel_data$netdiff = FALSE
+parcel_data$netdiff[2:nrow(parcel_data)] = parcel_data$yeo7network[2:nrow(parcel_data)] != parcel_data$yeo7network[1:(nrow(parcel_data) - 1)]
+```
+
+``{r parcelheatmap, fig.height=8, fig.width=8, echo=FALSE, message=FALSE, warning=FALSE, fig.cap='A heatmap showing the correlation coefficient of brain activity between 316 regions in the left hemisphere of a single individiual.  Komórki w kolorze żółtym odzwierciedlają silną korelację pozytywną, podczas gdy komórki w kolorze niebieskim odzwierciedlają silną korelację negatywną. Duże bloki dodatniej korelacji wzdłuż przekątnej macierzy odpowiadają głównym połączonym sieciom w mózgu"}
+hemis_to_use = 'L'
+
+tmp <- ccmtx[parcel_data$hemis == hemis_to_use,]
+ccmtx_lh <- tmp[, parcel_data$hemis == hemis_to_use]
+hemis_parcel_data = parcel_data %>%.
+  filter(hemis == hemis_to_use)
+
+heatmap.2(as.matrix(ccmtx_lh), trace='none', symm=T,
+          dendrogram='none', col=viridis(50), Rowv=FALSE, Colv=FALSE,
+          labCol = "", labRow="", key=FALSE)
+```
+
+## Klasteryzacja
+
+Klastrowanie odnosi się do zestawu metod identyfikacji grup powiązanych obserwacji lub zmiennych w ramach zbioru danych, w oparciu o podobieństwo wartości obserwacji.  Zazwyczaj to podobieństwo jest określane ilościowo w kategoriach pewnej miary *odległości* pomiędzy wartościami wielowymiarowymi.  Metoda klastrowania znajduje zbiór grup, które mają najmniejszą odległość między swoimi członkami.
+
+Jedną z powszechnie stosowanych miar odległości w procesie grupowania jest *dystans euklidesowy*, który jest długością linii łączącej dwa punkty danych.  Rysunek pokazuje przykład zbioru danych z dwoma punktami danych i dwoma wymiarami (X i Y).  Odległość euklidesowa między tymi dwoma punktami to długość linii kropkowanej, która łączy punkty w przestrzeni.
+
+``{r eucdist, echo=FALSE, fig.height=4, fig.width=4, fig.cap="Przedstawienie odległości euklidesowej między dwoma punktami, (1,2) i (4,3).  Te dwa punkty różnią się o 3 wzdłuż osi X i o 1 wzdłuż osi Y.'}
+euc_df <- data.frame(x=c(1, 4), y=c(2, 3))
+ggplot(euc_df, aes(x,y)) + geom_point() +
+  xlim(0, 5) + ylim(0, 4) +
+  annotate('segment', x=1, y=2, xend=4, yend=3, linetype='dotted')
+```
+
+Odległość euklidesową oblicza się przez podniesienie do kwadratu różnic w położeniu punktów w każdym wymiarze, dodanie tych różnic do kwadratu, a następnie wzięcie pierwiastka kwadratowego.  Gdy istnieją dwa wymiary $x$ i $y$, zostałoby to obliczone jako:
+
+$$
+d(x, y) = ∑sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2}
+$$
+
+Wstawiając wartości z naszych przykładowych danych:
+
+$$
+d(x, y) = \sqrt{(1 - 4)^2 + (2 - 3)^2} = 3,16
+$$
+
+Jeśli wzór na odległość euklidesową wydaje się nieco znajomy, to dlatego, że jest identyczny z *twierdzeniem Pitagorasa*, którego większość z nas uczyła się na zajęciach z geometrii, a które oblicza długość hipotensji trójkąta prostego na podstawie długości dwóch boków. W tym przypadku długości boków trójkąta odpowiadają odległości między punktami w każdym z dwóch wymiarów. Chociaż ten przykład był w dwóch wymiarach, często będziemy pracować z danymi, które mają wiele więcej niż dwa wymiary, ale ta sama idea rozciąga się na dowolną liczbę wymiarów.
+
+Jedną z ważnych cech odległości euklidesowej jest to, że jest ona wrażliwa na ogólną średnią i zmienność danych.  W tym sensie jest ona niepodobna do współczynnika korelacji, który mierzy liniowy związek między zmiennymi w sposób niewrażliwy na ogólną średnią i zmienność.  Z tego powodu często stosuje się *skalowanie* danych przed obliczeniem odległości euklidesowej, co jest równoznaczne z przekształceniem każdej zmiennej w jej wersję ocenioną w skali Z.
+
+### Klastrowanie metodą K-means
+
+Jedną z powszechnie stosowanych metod grupowania danych jest *K-means clustering*.  Technika ta identyfikuje zestaw centrów klastrów, a następnie przypisuje każdy punkt danych do klastra, którego centrum jest najbliżej (czyli ma najmniejszą odległość euklidesową) od punktu danych.  Jako przykład weźmy szerokość i długość geograficzną kilku krajów na świecie jako nasze punkty danych i zobaczmy, czy grupowanie K-means może skutecznie zidentyfikować kontynenty świata.
+
+``{r continents, echo=FALSE, message=FALSE, warning=FALSE, fig.height=4, fig.width=4}
+
+kraje <- read_delim('data/countries/country_data.csv', na=c('')) %>%
+  # odfiltruj kraje o populacji mniejszej niż 1M
+  filter(Population2020 > 500000)
+
+latlong <- kraje %>%
+  dplyr::select(latitude, longitude)
+
+#ggplot(countries, aes(longitude, latitude, color=Continent)) +
+# geom_point()
+
+```
+
+Większość pakietów oprogramowania statystycznego ma wbudowaną funkcję umożliwiającą przeprowadzenie klasteryzacji K-means za pomocą jednego polecenia, ale warto zrozumieć, jak działa ona krok po kroku.  Musimy najpierw zdecydować się na konkretną wartość dla *K*, czyli liczby klastrów, które mają zostać znalezione w danych.  Ważne jest, aby zaznaczyć, że nie ma jedynej "poprawnej" wartości dla liczby klastrów; istnieją różne techniki, których można użyć, aby spróbować określić, które rozwiązanie jest "najlepsze", ale często mogą one dać różne odpowiedzi, ponieważ zawierają różne założenia lub kompromisy. Niemniej jednak, techniki klastrowania, takie jak K-means, są ważnym narzędziem do zrozumienia struktury danych, zwłaszcza gdy stają się one wielowymiarowe.
+
+Po wybraniu liczby klastrów (*K*), które chcemy znaleźć, musimy wymyślić K miejsc, które będą naszymi początkowymi przypuszczeniami dla centrów naszych klastrów (ponieważ początkowo nie wiemy, gdzie są centra).  Jednym z prostych sposobów jest wybranie losowo K punktów danych i wykorzystanie ich jako punktów początkowych, które nazywamy *centroidami*.  Następnie obliczamy odległość euklidesową każdego punktu danych do każdego z centroidów i przypisujemy każdy punkt do klastra na podstawie jego najbliższego centroida.  Używając tych nowych przydziałów klastrów, ponownie obliczamy centroid każdego klastra poprzez uśrednienie położenia wszystkich punktów przypisanych do tego klastra.  Proces ten jest powtarzany do momentu znalezienia stabilnego rozwiązania; nazywamy to procesem *iteracyjnym*, ponieważ jest on powtarzany do momentu, gdy odpowiedź się nie zmieni lub do momentu osiągnięcia innego rodzaju limitu, np. maksymalnej liczby możliwych iteracji.
+
+``{r kmeans, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=4, fig.cap='Dwuwymiarowe przedstawienie grupowania na szerokości i długości geograficznej krajów na całym świecie.  Kwadratowe czarne symbole pokazują początkowe centroidy dla każdego klastra, a linie pokazują ruch centroidu dla tego klastra przez iteracje algorytmu.'}
+
+
+# based on https://stanford.edu/~cpiech/cs221/handouts/kmeans.html
+# need to clarify license!
+# i https://jakevdp.github.io/PythonDataScienceHandbook/05.11-k-means.html
+# (Kod na licencji MIT)
+
+k = 6
+set.seed(123456)
+# wybierz losowe punkty początkowe jako środki - tj. metoda Forgy'ego
+
+centroidy = latlong[sample.int(nrow(latlong), k),]
+
+
+iteracje = 0
+oldCentroids = data.frame()
+
+MAX_ITERACJE <- 100
+
+
+shouldStop <- function(oldCentroids, centroids, iterations){
+    if (iteracje > MAX_ITERACJE){
+      return(TRUE)
+    }
+    if (dim(oldCentroids)[1] == 0){
+      return(FALSE)
+    }
+    return(all.equal(as.matrix(centroids), as.matrix(oldCentroids)) == TRUE)
+}
+
+
+getLabels <- function(dataSet, centroidy){
+    d <- as.matrix(pdist::pdist(dataSet, centroidy))
+
+    # Dla każdego elementu w zbiorze danych wybierz najbliższy centroid.
+    # Uczyń ten centroid etykietą elementu.
+    return(apply(d, 1, which.min))
+}
+
+
+getCentroids <- function(dataSet, labels, k){
+    # Każdy centroid jest średnią geometryczną punktów, które
+    # mają etykietę tego centroida. Ważne: Jeśli centroid jest pusty (żadne punkty nie mają
+    # etykietę tego centroida) powinieneś losowo ponownie go zainicjować.
+    newCentroids <- NULL
+    for (i in 1:k){
+      labeldata <- dataSet[labels==i,]
+      newCentroids <- rbind(newCentroids, apply(labeldata, 2, mean))
+    }
+    return(newCentroids)
+}
+
+all_centroids_df = data.frame(centroids) %>%
+  mutate(label_kmeans=as.factor(seq(1,nrow(.))),
+         iter=0)
+
+
+while (!shouldStop(oldCentroids, centroidy, iteracje)) {
+          # Zapisz stare centroidy dla testu konwergencji. Przechowywanie książek.
+        oldCentroids = centroidy
+        iteracje = iteracje + 1
+        # Przypisz etykiety do każdego punktu danych na podstawie centroidów
+        labels = getLabels(latlong, centroids)
+
+        # Przypisz centroidy na podstawie etykiet punktów danych
+        centroidy = getCentroids(latlong, labels, k)
+        centroidy_df = data.frame(centroidy) %>%
+          mutate(label_kmeans=as.factor(seq(1,nrow(.))),
+                 iter=iteracje)
+        all_centroids_df = rbind(all_centroids_df, centroids_df)
+}
+#sprintf('Zakończono po %d iteracjach', iteracje)
+
+kraje <- kraje %>%
+  mutate(label_kmeans = as.factor(labels))
+
+centroid_df = all_centroids_df %>%
+  filter(iter=iteracje)
+
+p = ggplot(countries, aes(longitude, latitude, color=label_kmeans)) +
+  geom_point() +
+  geom_point(data=centroid_df,alpha=0.5, size=4)
+
+for (i in 1:iterations){
+  for (j in 1:k){
+    iter_df = all_centroids_df %>% filter(iter==i, label_kmeans==j)
+    prev_df = all_centroids_df %>% filter(iter==i-1, label_kmeans==j)
+    p = p + annotate('segment', x = iter_df$longitude,
+                              y = iter_df$latitude,
+                              xend = prev_df$longitude,
+                              yend = prev_df$latitude, alpha=0.7)
+  }
+}
+
+p + geom_point(data=all_centroids_df %>% filter(iter==0),
+               size=2, shape=15, color='black')
+
+```
+
+Stosując klasteryzację K-means do danych dotyczących szerokości/długości geograficznej (rysunek \@ref(fig:kmeans)), widzimy, że istnieje rozsądne dopasowanie pomiędzy wynikowymi klastrami i kontynentami, chociaż żaden z kontynentów nie jest idealnie dopasowany do żadnego z klastrów. Możemy to dalej zbadać, tworząc tabelę porównującą przynależność każdego klastra do rzeczywistych kontynentów dla każdego kraju; tego rodzaju tabela jest często nazywana *macierzą konfuzji*.
+
+``{r cluster_labels, echo=FALSE}
+table(labels, countries$Continent)
+
+```
+
+- Klaster 1 zawiera wszystkie kraje europejskie, a także kraje z północnej Afryki i Azji.
+- Klaster 2 zawiera kraje azjatyckie, jak również kilka krajów afrykańskich.
+- Klaster 3 zawiera kraje z południowej części Ameryki Południowej.
+- Grono 4 zawiera wszystkie kraje Ameryki Północnej, jak również północne kraje Ameryki Południowej.
+- Grono 5 zawiera Oceanię, jak również kilka krajów azjatyckich.
+- Skupisko 6 zawiera wszystkie pozostałe kraje afrykańskie.
+
+Chociaż w tym przykładzie znamy rzeczywiste klastry (czyli kontynenty świata), to w przypadku problemów z uczeniem bez nadzoru nie znamy prawdy podstawowej, więc musimy po prostu zaufać, że metoda klasteryzacji znalazła użyteczną strukturę w danych. Jednakże, jedną z ważnych kwestii dotyczących klasteryzacji K-means i ogólnie procedur iteracyjnych jest to, że nie ma gwarancji, że dadzą one tę samą odpowiedź za każdym razem, gdy są uruchamiane.  Użycie liczb losowych do określenia punktów początkowych oznacza, że punkty początkowe mogą się różnić za każdym razem, a w zależności od danych może to czasami prowadzić do znalezienia różnych rozwiązań.  Dla tego przykładu, klasteryzacja K-means czasami znajdzie pojedynczy klaster obejmujący zarówno Amerykę Północną jak i Południową, a czasami znajdzie dwa klastry (jak to miało miejsce dla konkretnego wyboru losowego nasienia użytego tutaj).  Kiedykolwiek używamy metody, która wymaga iteracyjnego rozwiązania, ważne jest, aby powtórzyć metodę kilka razy używając różnych nasion losowych, aby upewnić się, że odpowiedzi nie odbiegają zbytnio od siebie.  Jeśli tak, to należy unikać wyciągania silnych wniosków na podstawie niestabilnych wyników.  W rzeczywistości, prawdopodobnie dobrym pomysłem jest unikanie silnych wniosków na podstawie wyników grupowania; są one przede wszystkim przydatne do uzyskania intuicji na temat struktury, która może być obecna w zbiorze danych.
+
+``{r kmeansSro, fig.width=6, fig.height=6, echo=FALSE, fig.cap='Wizualizacja wyników grupowania z 10 przebiegów algorytmu grupowania K-means z K=3. Każdy rząd na rysunku reprezentuje inny przebieg algorytmu grupowania (z różnymi losowymi punktami startowymi), a zmienne mające ten sam kolor są członkami tego samego klastra.'}
+
+set.seed(123)
+cluster_results = c()
+for (i in 1:10){
+  km.result = kmeans(t(impdata), 3)
+  cluster_results = rbind(cluster_results, km.result$cluster)
+  # zmień etykietę, aby numery klastrów pasowały, gdy rozwiązanie jest identyczne
+  for (j in 1:(i-1)){
+    if (j>0 && adjustedRandIndex(cluster_results[i, ], cluster_results[j, ]) == 1){
+      cluster_results[i, ] = cluster_results[j, ]
+      break
+    }
+  }
+}
+
+heatmap.2(cluster_results, dendrogram='none', trace='none',
+          col=rainbow(3, start=0.1, alpha=0.5), notecol='black',
+          cellnote=cluster_results, notecex=1, key=FALSE,
+           margins=c(8,8), srtCol=45, )
+```
+Możemy zastosować grupowanie K-means do zmiennych samokontroli, aby określić, które zmienne są ze sobą najbardziej powiązane.  Dla K=2, algorytm K-means konsekwentnie wybiera jeden klaster zawierający zmienne SSRT i jeden zawierający zmienne impulsywności.  Przy wyższych wartościach K wyniki są mniej spójne; na przykład, przy K=3 algorytm czasami identyfikuje trzeci klaster zawierający tylko zmienną UPPS poszukującą wrażeń, podczas gdy w innych przypadkach rozdziela zmienne SSRT na dwa oddzielne klastry (jak widać na Rysunku \ref(fig:kmeansSro)).  Stabilność skupień przy K=2 sugeruje, że jest to prawdopodobnie najbardziej solidne grupowanie dla tych danych, ale wyniki te podkreślają również znaczenie wielokrotnego uruchamiania algorytmu w celu określenia, czy dany wynik grupowania jest stabilny.
+
+### Klasteryzacja hierarchiczna
+
+Inną użyteczną metodą badania struktury wielowymiarowego zbioru danych jest *hierarchiczne grupowanie*.  Technika ta również wykorzystuje odległości między punktami danych do określenia klastrów, ale zapewnia również sposób wizualizacji relacji między punktami danych w postaci struktury przypominającej drzewo, znanej jako *dendrogram*.
+
+Najczęściej stosowana procedura hierarchicznego grupowania znana jest jako *agglomeracyjne grupowanie*.  Procedura ta rozpoczyna się od traktowania każdego punktu danych jako własnego klastra, a następnie stopniowo tworzy nowe klastry poprzez połączenie dwóch klastrów o najmniejszej odległości między nimi. Procedura ta jest kontynuowana do momentu, gdy istnieje tylko jeden klaster. W tym celu należy obliczyć odległość między klastrami, co można zrobić na wiele sposobów; w tym przykładzie zastosujemy metodę *average linkage*, która polega na obliczeniu średniej odległości między każdym punktem danych w każdym z dwóch klastrów. Jako przykład, zbadamy związek pomiędzy zmiennymi samokontroli, które zostały opisane powyżej.
+
+
+``{r dendro, echo=FALSE, message=FALSE, warning=FALSE, fig.cap='Dendrogram przedstawiający względne podobieństwo dziewięciu zmiennych samokontroli.  Trzy kolorowe pionowe linie reprezentują trzy różne punkty odcięcia, dając w rezultacie dwa (niebieska linia), trzy (zielona linia) lub cztery (czerwona linia) skupiska.  }
+
+d <- dist(t(impdata))
+
+hc <- hclust(d, method='average')
+
+
+#konwertuj obiekt klastra do użycia z ggplot
+dendr <- dendro_data(hc, type="rectangle")
+
+# TODO: https://stackoverflow.com/questions/21474388/colorize-clusters-in-dendogram-with-ggplot2
+
+cutoffs = c(25, 20, 19)
+
+#własne etykiety (teraz rownames) są dostarczane w geom_text() i label=label
+ggplot() +
+  geom_segment(data=segment(dendr), aes(x=x, y=y, xend=xend, yend=yend)) +
+  geom_text(data=label(dendr), aes(x=x, y=y,label=dendr$labels$label, hjust=0)), size=3) +
+  coord_flip() + scale_y_reverse(expand=c(0.2, 0)) +
+  theme(axis.line.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.title.y=element_blank(),
+        panel.background=element_rect(fill="white"),
+        panel.grid=element_blank()) +
+   geom_hline(yintercept=cutoffs[1], color='blue') +
+   geom_hline(yintercept=cutoffs[2], color='green') +
+   geom_hline(yintercept=cutoffs[3], color='red') +
+   ylim(30, -10)
+
+```
+
+Rysunek pokazuje dendrogram wygenerowany ze zbioru danych o samoregulacji. Widzimy tutaj, że istnieje struktura w relacjach między zmiennymi, która może być zrozumiana na różnych poziomach poprzez "przycięcie" drzewa, aby stworzyć różne liczby skupień: jeśli przetniemy drzewo przy 25, otrzymamy dwa skupienia; jeśli przetniemy je przy 20, otrzymamy trzy skupienia, a przy 19 otrzymamy cztery skupienia.
+
+``{r cutoffs, echo=FALSE}
+ct<- cutree(hc, h=cutoffs)
+
+ct_df <- data.frame(ct)
+cutoff_names = c()
+for (c in cutoffs){
+  cutoff_names = c(cutoff_names, sprintf('cutoff=%d', c))
+}
+names(ct_df) <- cutoff_names
+
+# ct_df
+```
+
+Co ciekawe, rozwiązanie znalezione przez analizę hierarchicznego grupowania danych dotyczących samokontroli jest identyczne z rozwiązaniem znalezionym w większości przebiegów grupowania K-means, co jest pocieszające.
+
+Nasza interpretacja tej analizy byłaby taka, że istnieje wysoki stopień podobieństwa w obrębie każdego z zestawów zmiennych (SSRT i UPPS) w porównaniu do podobieństwa między zestawami. W ramach zmiennych UPPS wydaje się, że zmienna poszukiwania wrażeń stoi w oderwaniu od pozostałych, które są do siebie znacznie bardziej podobne.  W obrębie zmiennych SSRT wydaje się, że zmienna selektywności bodźców odróżnia się od pozostałych trzech, które są do siebie bardziej podobne.  Są to tego rodzaju wnioski, które można wyciągnąć z analizy skupień.  Należy ponownie podkreślić, że nie ma jednej "właściwej" liczby klastrów; różne metody opierają się na różnych założeniach lub heurystykach i mogą dawać różne wyniki i interpretacje.  Ogólnie rzecz biorąc, dobrze jest przedstawić dane pogrupowane na kilku różnych poziomach i upewnić się, że nie zmienia to drastycznie interpretacji danych.
+
+
+## Redukcja wymiarowości
+
+W przypadku danych wielowymiarowych często zdarza się, że wiele zmiennych jest bardzo podobnych do siebie, tak że w dużej mierze mierzą one to samo.  Jednym ze sposobów myślenia o tym jest to, że chociaż dane mają określoną liczbę zmiennych, którą nazywamy ich *wymiarowością*, w rzeczywistości nie ma tak wielu podstawowych źródeł informacji jak zmiennych.  Ideą *redukcji wymiarowości* jest zmniejszenie liczby zmiennych w celu stworzenia zmiennych złożonych, które odzwierciedlają podstawowe sygnały w danych.
+
+### Analiza składowych głównych
+
+Ideą analizy składowych głównych jest znalezienie niższego wymiaru opisu zbioru zmiennych, który uwzględnia maksymalną możliwą ilość informacji w pełnym zbiorze danych.  Głębokie zrozumienie analizy składowych głównych wymaga zrozumienia algebry liniowej, co wykracza poza zakres tej książki; pomocne przewodniki na ten temat znajdują się w zasobach na końcu tego rozdziału. W tym rozdziale przedstawię zarys koncepcji i mam nadzieję, że zaostrzę Twój apetyt na więcej.
+
+``{r pca_mkdata, echo=FALSE, message=FALSE, warning=FALSE}
+
+N <-30 #ustalenie rozmiaru mojej próbki
+mu <- c(0, 0) #ustalenie średnich
+c1 <- .7
+
+sigma <- matrix(c(1, c1, c1, 1),2, 2)  #ustawienie wartości macierzy kowariancji. Część "2,2" na końcu określa liczbę wierszy i kolumn w macierzy
+
+set.seed(04182019) #ustawienie wartości nasion, abym mógł odtworzyć tę dokładną symulację później, jeśli zajdzie taka potrzeba
+simdata <- mvrnorm(n=N,mu=mu,Sigma=sigma, empirical=TRUE) #symulacja danych, jak określono powyżej
+
+sim_df <- data.frame(simdata)
+names(sim_df) <- c("Y", "X")
+
+# ggplot(sim_df, aes(X, Y)) +
+# geom_point() +
+# xlim(-3, 3) +
+# ylim(-3, 3) +
+# geom_smooth(method='lm', se=FALSE)
+
+```
+
+Zaczniemy od prostego przykładu z tylko dwoma zmiennymi, aby dać intuicję, jak to działa.  Najpierw wygenerujemy pewne syntetyczne dane dla zmiennych X i Y, z korelacją 0.7 pomiędzy tymi dwoma zmiennymi. Celem analizy składowych głównych jest znalezienie liniowej kombinacji obserwowanych zmiennych w zbiorze danych, która wyjaśni maksymalną ilość wariancji; chodzi o to, że wariancja w danych jest kombinacją sygnału i szumu, a my chcemy znaleźć najsilniejszy wspólny sygnał między zmiennymi. Pierwszy główny składnik jest kombinacją, która wyjaśnia maksymalną wariancję. Drugi składnik to ten, który wyjaśnia maksymalną pozostałą wariancję, będąc jednocześnie nieskorelowanym z pierwszym składnikiem. Przy większej liczbie zmiennych możemy kontynuować ten proces, aby uzyskać tyle składowych, ile jest zmiennych (zakładając, że jest więcej obserwacji niż zmiennych), choć w praktyce zwykle mamy nadzieję znaleźć niewielką liczbę składowych, które mogą wyjaśnić dużą część wariancji.
+
+
+``{r pca_compute, echo=F, message=F, warning=F}
+
+# skaluj zmienne
+
+sim_df <- sim_df %>%
+  mutate(X = scale(X),
+         Y = scale(Y))
+
+# oblicz macierz kowariancji
+
+
+sim_df_cov<- cov(sim_df)
+
+# Oblicz wartości własne/wektory własne
+
+
+cov_eig <- eigen(sim_df_cov)
+```
+
+W przypadku naszego dwuwymiarowego przykładu, możemy obliczyć główne składowe i nanieść je na dane (rysunek \@ref(fig:pcaPlot)).  Widzimy, że pierwsza składowa główna (pokazana na zielono) podąża w kierunku największej wariancji.  Linia ta jest podobna, choć nie identyczna, do linii regresji liniowej; podczas gdy rozwiązanie regresji liniowej minimalizuje odległość pomiędzy każdym punktem danych a linią regresji przy tej samej wartości X (tj. odległość pionową), główna składowa minimalizuje odległość euklidesową pomiędzy punktami danych a linią reprezentującą składową (tj. odległość prostopadłą do składowej).  Druga składowa wskazuje w kierunku prostopadłym do pierwszej składowej (co jest równoznaczne z tym, że jest nieskorelowana).
+
+``{r pcaPlot, echo=FALSE, fig.width=4, fig.height=4, message=F, warning=F, fig.cap='Wykres syntetycznych danych, z pierwszą główną składową wykreśloną na zielono i drugą na czerwono.'}
+
+g <- ggplot(sim_df, aes(X, Y)) +
+   geom_point(size=1.5) +
+  xlim(-3, 3) +
+  ylim(-3, 3)
+
+# na podstawie https://stats.stackexchange.com/questions/153564/visualizing-pca-in-r-data-points-eigenvectors-projections-confidence-ellipse
+
+# obliczamy stoki jako współczynniki
+cov_eig$slopes[1] <- cov_eig$vectors[1,1]/cov_eig$vectors[2,1]
+cov_eig$slopes[2] <- cov_eig$vectors[1, 2]/cov_eig$vectors[2,2]
+
+g <- g + geom_segment(x = 0, y = 0,
+                      xend = cov_eig$values[1],
+                      yend = cov_eig$slopes[1] * cov_eig$values[1],
+                      color = "green", size=1.5,
+                      arrow = arrow(length = unit(0.2, "cm")))  # dodaj strzałkę dla pc1
+g <- g + geom_segment(x = 0, y = 0,
+                      xend = cov_eig$values[2],
+                      yend = cov_eig$slopes[2] * cov_eig$values[2],
+                      color = "red", size=1.5,
+                      arrow = arrow(length = unit(0.2, "cm")))  # dodaj strzałkę dla pc2
+
+g
+```
+
+
+Powszechne jest używanie PCA do zmniejszenia wymiarowości bardziej złożonego zestawu danych. Na przykład, powiedzmy, że chcielibyśmy wiedzieć, czy wydajność na wszystkich czterech zmiennych zadania sygnału stopu we wcześniejszym zestawie danych jest związana z pięcioma zmiennymi badania impulsywności.  Możemy przeprowadzić PCA na każdym z tych zestawów danych osobno i zbadać, jak wiele wariancji w danych jest uwzględnianych przez pierwszą składową główną, która posłuży nam jako podsumowanie danych.
+
+``{r VAF, echo=F, fig.width=4, fig.height=4, fig.cap='Wykres wariancji uwzględnionej (lub *scree plot*) dla PCA zastosowanego oddzielnie do zmiennych hamowania reakcji i impulsywności ze zbioru danych Eisenberga.'}
+ssrtdata <- as.data.frame(impdata) %>% dplyr::select(starts_with('SSRT'))
+
+pca_result_ssrt <- prcomp(ssrtdata)
+pca_ssrt_varacct = summary(pca_result_ssrt)$importance[2,]
+
+ssrt_df = data.frame(dataset='SSRT', PC=seq(1, 4), VarianceAccountedFor=pca_ssrt_varacct)
+uppsdata <- as.data.frame(impdata) %>% dplyr::select(!starts_with('SSRT'))
+
+pca_result_upps <- prcomp(uppsdata)
+pca_upps_varacct = summary(pca_result_upps)$importance[2,]
+upps_df = data.frame(dataset='UPPS', PC=seq(1, 5), VarianceAccountedFor=pca_upps_varacct)
+
+
+var_df <- rbind(ssrt_df, upps_df)
+
+ggplot(var_df, aes(PC, VarianceAccountedFor, color=dataset)) +
+  geom_line(size=1.5)
+```
+
+Widzimy na rysunku, że dla zmiennych sygnału stopu pierwsza składowa główna odpowiada za około 60% wariancji danych, natomiast dla UPPS odpowiada za około 55% wariancji. Następnie możemy obliczyć korelację pomiędzy wynikami uzyskanymi przy użyciu pierwszej składowej głównej z każdego zestawu zmiennych, aby zapytać, czy istnieje związek pomiędzy tymi dwoma zestawami zmiennych.  Korelacja -0,014 pomiędzy dwoma zmiennymi sumarycznymi sugeruje, że nie ma ogólnego związku pomiędzy hamowaniem reakcji a impulsywnością w tym zestawie danych.
+
+``{r echo=FALSE}
+pca_df <- data.frame(SSRT=predict(pca_result_ssrt)[, 'PC1'],
+                     UPPS=predict(pca_result_upps)[, 'PC1'])
+
+#ggplot(pca_df, aes(SSRT, UPPS)) +
+# geom_point() +
+# geom_smooth(method='lm', se=FALSE)
+```
+
+``{r, echo=FALSE}
+ct = cor.test(pca_df$SSRT, pca_df$UPPS)
+ct
+```
+
+Możemy również wykonać PCA na wszystkich tych zmiennych jednocześnie.  Patrząc na wykres wariancji uwzględnionej (znany również jako wykres *scree) na rysunku, możemy zobaczyć, że pierwsze dwie składowe odpowiadają za znaczną część wariancji w danych. Możemy następnie przyjrzeć się obciążeniom poszczególnych zmiennych na tych dwóch składowych, aby zrozumieć, jak każda konkretna zmienna jest związana z różnymi składowymi.
+
+
+``{r imp_pc_scree, echo=FALSE, message=FALSE, fig.cap='Plot of variance accounted for by PCA components computed on the full set of self-control variables.'}
+
+imp_pc = prcomp(impdata, scale. = T)
+
+fviz_screeplot(imp_pc, addlabels = TRUE, ylim = c(0, 50))
+```
+
+
+``{r pcaVarPlot, echo=FALSE, fig.width=4, fig.height=4, fig.cap='Wykres ładunków zmiennych w rozwiązaniu PCA obejmującym wszystkie zmienne samokontroli. Każda zmienna jest pokazana pod względem jej obciążeń na każdym z dwóch komponentów; odzwierciedlonych odpowiednio w dwóch rzędach.'}
+
+loading_df = as.data.frame(imp_pc$rotation)
+
+loading_df['Variable'] = rownames(loading_df)
+loading_df = loading_df %>%
+  pivot_longer(!Zmienna, names_to='PC', values_to='Loading') %>%
+  filter(PC %in% c('PC1', 'PC2'))
+
+ggplot(loading_df ,
+       aes(Zmienna, Obciążenie)) + geom_bar(stat='identity') +
+      facet_grid(PC ~ .)
+```
+
+Robiąc to dla zbioru danych impulsywności (rysunek ™@ref(fig:pcaVarPlot)), widzimy, że pierwszy składnik (w pierwszym rzędzie rysunku) ma niezerowe ładunki dla większości zmiennych UPPS i prawie zerowe ładunki dla każdej ze zmiennych SSRT, podczas gdy odwrotnie jest z drugim głównym składnikiem, który ładuje się głównie do zmiennych SSRT.  To mówi nam, że pierwszy główny składnik uchwycił głównie wariancję związaną z pomiarami impulsywności, podczas gdy drugi składnik uchwycił głównie wariancję związaną z pomiarami hamowania reakcji. Można zauważyć, że ładunki są w rzeczywistości ujemne dla większości tych zmiennych; znak ładunków jest arbitralny, więc powinniśmy się upewnić, że zwracamy uwagę na duże dodatnie i ujemne ładunki.
+
+### Analiza czynnikowa
+
+Chociaż analiza głównych składowych może być przydatna do redukcji zbioru danych do mniejszej liczby zmiennych złożonych, standardowe metody PCA mają pewne ograniczenia.  Przede wszystkim, zapewniają one, że składowe są nieskorelowane; podczas gdy może to być czasami użyteczne, często zdarzają się przypadki, gdy chcemy wyodrębnić wymiary, które mogą być ze sobą skorelowane.  Drugim ograniczeniem jest to, że PCA nie uwzględnia błędu pomiaru w analizowanych zmiennych, co może prowadzić do trudności w interpretacji wynikowych obciążeń na komponentach.  Chociaż istnieją modyfikacje PCA, które mogą rozwiązać te problemy, w niektórych dziedzinach (takich jak psychologia) bardziej powszechne jest stosowanie techniki zwanej *eksploracyjną analizą czynnikową* (lub EFA) w celu zmniejszenia wymiarowości zbioru danych.^[Istnieje inne zastosowanie analizy czynnikowej znane jako *konfirmacyjna analiza czynnikowa* (lub CFA), której nie będziemy tutaj omawiać; W praktyce jej zastosowanie może być problematyczne, a ostatnie prace zaczęły zmierzać w kierunku modyfikacji EFA, które mogą odpowiedzieć na pytania często adresowane przy użyciu CFA.[@Marsh:2014th]].
+
+Idea EFA polega na tym, że każda obserwowana zmienna powstaje poprzez kombinację wkładów ze zbioru *zmiennych latentnych* -- czyli zmiennych, które nie mogą być obserwowane bezpośrednio -- wraz z pewną ilością błędu pomiaru dla każdej zmiennej. Z tego powodu modele EFA są często określane jako należące do klasy modeli statystycznych znanych jako *latent variable models*.
+
+Na przykład, powiedzmy, że chcemy zrozumieć, jak miary kilku różnych zmiennych odnoszą się do czynników leżących u podstaw tych pomiarów.  Najpierw wygenerujemy syntetyczny zbiór danych, aby pokazać, jak to może działać.  Wygenerujemy zbiór osób, dla których będziemy udawać, że znamy wartości kilku ukrytych zmiennych psychologicznych: impulsywności, pojemności pamięci roboczej i płynnego rozumowania. Założymy, że pojemność pamięci roboczej i płynne rozumowanie są ze sobą skorelowane, ale żadna z nich nie jest skorelowana z impulsywnością. Z tych zmiennych ukrytych wygenerujemy następnie zestaw ośmiu zmiennych obserwowanych dla każdej osoby, które są po prostu liniowymi kombinacjami zmiennych ukrytych wraz z losowym szumem dodanym w celu symulacji błędu pomiaru.
+
+``{r echo=FALSE}
+N <- 200 #ustalenie wielkości próby
+mu <- rep(0, 3) #ustalenie środków
+c1 <- .5 # korelacja między WM i FR
+
+sigma <- matrix(c(1, c1, 0, c1, 1, 0, 0, 0, 1), 3, 3) #ustalenie wartości macierzy kowariancji. Część "2,2" na końcu ogona określa liczbę wierszy i kolumn w macierzy
+
+set.seed(04182019) #ustawienie wartości nasion, abym mógł odtworzyć tę dokładną symulację później, jeśli zajdzie taka potrzeba
+simdata <- mvrnorm(n=N,mu=mu,Sigma=sigma, empirical=TRUE) #symulacja danych, jak określono powyżej
+
+latent_df <- data.frame(simdata)
+names(latent_df) = c('WM', 'FR', 'IMP')
+
+
+# utwórz zmienne obserwowane poprzez mnożenie macierzy zmiennych latentnych
+# przez macierz wag
+set.seed(123456)
+tasknames = c('nback', 'dspan', 'sspan', 'ravens', 'crt', 'UPPS', 'BIS11', 'dickman')
+ntasks = length(tasknames)
+weights = matrix(data = 0, 3, ntasks)
+weights[1, 1:3] = 1
+weights[2, 4:5] = 1
+weights[3, 6:8] = 1
+
+noise_sd = .6
+observed_vals = as.matrix(latent_df) %*% weights +
+  mvrnorm(n=N, mu=rep(0, ntasks), Sigma=diag(ntasks) * noise_sd)
+observed_df <- data.frame(observed_vals)
+names(observed_df) <- tasknames
+```
+
+Możemy dalej badać dane, wyświetlając mapę cieplną macierzy korelacji odnoszącej się do wszystkich tych zmiennych (rys. Widzimy na niej, że istnieją trzy skupiska zmiennych odpowiadające naszym trzem zmiennym ukrytym, czyli tak jak powinno być.
+
+``{r efa_cor_hmap, echo=FALSE, fig.cap='A heatmap showing the correlations between the variables generated from the three underlying latent variables.'}
+cormtx = t(cor(observed_df))
+
+heatmap.2(cormtx, trace='none', symm=TRUE,
+          revC=TRUE,col=viridis(50),
+          cellnote=round(cormtx, 2), notecol='black', key=FALSE,)
+```
+
+Możemy myśleć o EFA jako o szacowaniu parametrów zestawu modeli liniowych jednocześnie, gdzie każdy model odnosi każdą z obserwowanych zmiennych do zmiennych ukrytych.  Dla naszego przykładu, równania te wyglądałyby następująco.  W tych równaniach znaki $beta$ mają dwa indeksy, jeden odnoszący się do zadania, a drugi odnoszący się do zmiennej ukrytej, oraz zmienną $epsilon$, która odnosi się do błędu.  Tutaj założymy, że wszystko ma średnią równą zero, dzięki czemu nie musimy uwzględniać dodatkowego członu przechwytującego w każdym równaniu.
+
+$$
+\begin{array}{lcl}
+nback & = &beta_{[1, 1]} * WM + &beta_{[1, 2]} * FR + βbeta_{[1, 3]} * IMP + ¨epsilon ¨.
+dspan & = &beta_{[2, 1]} * WM + ąbeta_{[2, 2]} * FR + ¨beta_{[2, 3]} * IMP + ¨epsilon ¨.
+ospan & = &beta_{[3, 1]} * WM + ąbeta_{[3, 2]} * FR + ¨beta_{[3, 3]} * IMP + ¨epsilon ¨.
+kruki & = &beta_{[4, 1]} * WM + βeta_{[4, 2]} * FR + Βeta_{[4, 3]} * IMP + \u200 \u200 \u200 \u200 \u200 \u200 \u200
+crt & = &beta_{[5, 1]} * WM + ¨beta_{[5, 2]} * FR + ¨beta_{[5, 3]} * IMP + ¨epsilon ¨.
+UPPS & = &beta_{[6, 1]} * WM + ¨beta_{[6, 2]} * FR + ¨beta_{[6, 3]} * IMP + \a_{[6, 3]}
+BIS11 & = &beta_{[7, 1]} * WM + Βeta_{[7, 2]} * FR + ¨beta_{[7, 3]} * IMP + \a_{[7, 3]} * IMP + \a_{[7, 3]}
+dickman & = &beta_{[8, 1]} * WM + ¨beta_{[8, 2]} * FR + ¨beta_{[8, 3]} * IMP + ¨epsilon ¨.
+\end{array}
+$$
+
+W efekcie to, co chcemy zrobić za pomocą EFA, to oszacować *macierz* współczynników (bet), które odwzorowują zmienne ukryte na zmienne obserwowane.  Dla danych, które generujemy, wiemy, że większość bet w tej macierzy wynosi zero, ponieważ tak je stworzyliśmy; dla każdego zadania tylko jedna z wag jest ustawiona na 1, co oznacza, że każde zadanie jest zaszumionym pomiarem pojedynczej zmiennej ukrytej.
+
+Możemy zastosować EFA do naszego syntetycznego zbioru danych, aby oszacować te parametry. Nie będziemy zagłębiać się w szczegóły tego, jak EFA jest przeprowadzana, poza tym, że wspomnimy o jednej ważnej kwestii.  Większość poprzednich analiz w tej książce opierała się na metodach, które próbowały zminimalizować różnicę pomiędzy obserwowanymi wartościami danych a wartościami przewidywanymi przez model.  Metody, które są używane do szacowania parametrów dla EFA, próbują zminimalizować różnicę pomiędzy obserwowanymi *kowariancjami* pomiędzy obserwowanymi zmiennymi, a kowariancjami implikowanymi przez parametry modelu. Z tego powodu metody te są często określane jako *modele struktury kowariancji*.
+
+Zastosujmy eksploracyjną analizę czynnikową do naszych danych syntetycznych. Podobnie jak w przypadku metod klasteryzacji, musimy najpierw określić, ile czynników latentnych chcemy uwzględnić w naszym modelu. W tym przypadku wiemy, że istnieją trzy czynniki, więc zacznijmy od tego; później zbadamy sposoby szacowania liczby czynników bezpośrednio na podstawie danych.  Oto wyjście z naszego oprogramowania statystycznego dla tego modelu:
+
+``{r fa_synthetic, echo=FALSE}
+fa_result <- fa(observed_df, nfactors = 3)
+summary(fa_result)
+```
+
+Jednym z pytań, które chcielibyśmy zadać jest to, jak dobrze nasz model faktycznie pasuje do danych.  Nie ma jednego sposobu, aby odpowiedzieć na to pytanie; badacze opracowali raczej wiele różnych metod, które zapewniają pewien wgląd w to, jak dobrze model pasuje do danych.  Na przykład, jedno z powszechnie stosowanych kryteriów opiera się na statystyce *root mean square error of approximation* (RMSEA), która określa, jak daleko przewidywane kowariancje są od rzeczywistych kowariancji; wartość RMSEA mniejsza niż 0,08 jest często uważana za odzwierciedlenie odpowiednio dopasowanego modelu.  W omawianym przykładzie wartość RMSEA wynosi 0,026, co sugeruje, że model jest dość dobrze dopasowany.
+
+Możemy również zbadać oszacowania parametrów, aby zobaczyć, czy model odpowiednio zidentyfikował strukturę danych.  Zazwyczaj przedstawia się to w postaci wykresu, na którym strzałki od zmiennych ukrytych (przedstawionych jako elipsy) wskazują na zmienne obserwowane (przedstawione jako prostokąty), gdzie strzałka reprezentuje znaczące obciążenie zmiennej obserwowanej przez zmienną ukrytą; ten rodzaj wykresu jest często określany jako *diagram ścieżek*, ponieważ odzwierciedla on ścieżki odnoszące się do zmiennych. Jest to pokazane na rysunku \N(fig:faDiagram). W tym przypadku procedura EFA poprawnie zidentyfikowała strukturę obecną w danych, zarówno pod względem tego, które obserwowane zmienne są związane z każdą ze zmiennych ukrytych, jak i pod względem korelacji pomiędzy zmiennymi ukrytymi.
+
+
+``{r faDiagram, echo=FALSE, fig.cap='Path diagram for the exploratory factor analysis model.'}
+fa.diagram(fa_result)
+```
+
+### Określanie liczby czynników
+
+Jednym z głównych wyzwań w zastosowaniu EFA jest określenie liczby czynników.  Powszechnym sposobem jest zbadanie dopasowania modelu przy zmianie liczby czynników, a następnie wybranie modelu, który daje najlepsze dopasowanie.  Nie jest to niezawodne i istnieje wiele sposobów na ilościowe określenie dopasowania modelu, które czasami mogą dawać różne odpowiedzi.
+
+Można by pomyśleć, że możemy po prostu spojrzeć na to, jak dobrze model pasuje i wybrać liczbę czynników z najlepszym dopasowaniem, ale to nie zadziała, ponieważ bardziej złożony model zawsze będzie lepiej pasował do danych (jak widzieliśmy w naszej wcześniejszej dyskusji na temat nadmiernego dopasowania).  Z tego powodu musimy użyć metryki dopasowania modelu, która penalizuje za liczbę parametrów w modelu.  Dla celów tego przykładu wybierzemy jedną z popularnych metod kwantyfikacji dopasowania modelu, która znana jest jako *sample-size adjusted Bayesian information criterion* (lub *SABIC*).  Miara ta określa, jak dobrze model pasuje do danych, biorąc jednocześnie pod uwagę liczbę parametrów w modelu (która w tym przypadku jest związana z liczbą czynników), a także wielkość próby.  Chociaż wartość bezwzględna SABIC nie jest możliwa do zinterpretowania, to w przypadku korzystania z tych samych danych i tego samego rodzaju modelu możemy porównać modele za pomocą SABIC, aby określić, który jest najbardziej odpowiedni dla danych.  Jedną z ważnych rzeczy, które należy wiedzieć o SABIC i innych miarach podobnych do niego (znanych jako *kryteria informacyjne*) jest to, że niższe wartości reprezentują lepsze dopasowanie modelu, więc w tym przypadku chcemy znaleźć liczbę czynników o najniższym SABIC. Na rysunku \u0026.pl widzimy, że model z najniższym SABIC ma trzy czynniki, co pokazuje, że to podejście było w stanie dokładnie określić liczbę czynników użytych do wygenerowania danych.
+
+
+``{r sabicPlot, echo=FALSE, fig.cap='Plot of SABIC for varying numbers of factors.'}
+
+BIC_results = data.frame(nfactors=seq(1, 4), SABIC=NA)
+
+for (i in 1:nrow(BIC_results)){
+  BIC_results$SABIC[i] = fa(observed_df, nfactors=BIC_results$nfactors[i])$SABIC
+}
+
+ggplot(BIC_results, aes(nfactors, SABIC)) + geom_line()
+```
+
+Zobaczmy teraz, co się stanie, gdy zastosujemy ten model do rzeczywistych danych ze zbioru Eisenberg et al., który zawiera pomiary wszystkich ośmiu zmiennych, które były symulowane w powyższym przykładzie. Model z trzema czynnikami ma również najniższy SABIC dla tych prawdziwych danych.
+
+``{r sabic_sro, echo=FALSE, fig.cap='A plot of SABIC for the data from the Eisenberg et al. study.'}
+imp_efa_df <- behavdata %>%.
+  dplyr::select(adaptive_n_back.mean_load,
+                bis11_survey.Nonplanning,
+                cognitive_reflection_survey.correct_proportion,
+                dickman_survey.dysfunctional,
+                digit_span.reverse_span,
+                ravens.score,
+                spatial_span.reverse_span,
+                upps_impulsivity_survey.lack_of_premeditation
+                ) %>%
+  rename(UPPS = upps_impulsivity_survey.lack_of_premeditation,
+         nback = adaptive_n_back.mean_load,
+         BIS11 = bis11_survey.Nonplanning,
+         dickman = dickman_survey.dysfunctional,
+         dspan = digit_span.reverse_span,
+         sspan = spatial_span.reverse_span,
+         crt = cognitive_reflection_survey.correct_proportion,
+         ravens = ravens.score
+         )
+
+BIC_df <- data.frame(nfactors = seq(1, 4), SABIC=NA)
+
+for (i in 1:nrow(BIC_df)){
+  fa_result <- fa(imp_efa_df, nfactors=BIC_df$nfactors[i])
+  BIC_df$SABIC[i] = fa_result$SABIC
+}
+
+#ggplot(BIC_df, aes(nfactors, SABIC)) +
+# geom_line()
+```
+
+``{r faDiagramSro, echo=FALSE, fig.cap='Path diagram for the three-factor model on the Eisenberg et al. data.'}
+
+fa_result <- fa(imp_efa_df, nfactors=3)
+
+#summary(fa_result)
+
+fa.diagram(fa_result)
+
+```
+
+Wyplotowanie diagramu ścieżek (rysunek \u00261) widzimy, że rzeczywiste dane demonstrują strukturę czynnikową, która jest bardzo podobna do tego, co widzieliśmy z danymi symulowanymi. Nie powinno to być zaskakujące, ponieważ symulowane dane zostały wygenerowane na podstawie wiedzy o tych różnych zadaniach, ale pocieszająca jest świadomość, że ludzkie zachowanie jest na tyle systematyczne, że możemy wiarygodnie zidentyfikować tego rodzaju zależności.  Główna różnica polega na tym, że korelacja między czynnikiem pamięci roboczej (MR3) a czynnikiem rozumowania płynnego (MR1) jest jeszcze wyższa niż w danych symulowanych. Wynik ten jest naukowo użyteczny, ponieważ pokazuje nam, że choć pamięć robocza i rozumowanie płynne są ze sobą ściśle powiązane, istnieje użyteczność w ich oddzielnym modelowaniu.
+
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś być w stanie:
+
+* Opisać rozróżnienie między uczeniem nadzorowanym i nienadzorowanym.
+* Wykorzystać techniki wizualizacji, w tym mapy ciepła, do wizualizacji struktury danych wielowymiarowych.
+* Zrozumieć pojęcie klastrowania i jego zastosowanie do identyfikacji struktury danych.
+* Zrozumienie koncepcji redukcji wymiarowości.
+* Opisać, jak analiza składowych głównych i analiza czynnikowa mogą być wykorzystane do przeprowadzenia redukcji wymiarowości.
+
+## Sugerowane lektury.
+
+- The Geometry of Multivariate Statistics *, by Thomas Wickens
+- Przewodnik bez bzdur po algebrze liniowej*, autorstwa Ivana Savova.

@@ -1,0 +1,200 @@
+---
+output:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+# Sampling {#sampling}
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(cowplot)
+```
+
+Jedną z fundamentalnych idei statystyki jest to, że możemy wnioskować o całej populacji na podstawie stosunkowo małej próbki osobników z tej populacji.  W tym rozdziale przedstawimy koncepcję statystycznego próbkowania i omówimy, dlaczego ono działa.
+
+Każdy, kto mieszka w Stanach Zjednoczonych, zna pojęcie próbkowania z sondaży politycznych, które stały się centralną częścią naszego procesu wyborczego. W niektórych przypadkach, sondaże te mogą być niezwykle dokładne w przewidywaniu wyników wyborów. Najbardziej znany przykład pochodzi z wyborów prezydenckich w USA w 2008 i 2012 roku, kiedy to Nate Silver poprawnie przewidział wyniki wyborów dla 49/50 stanów w 2008 roku i dla wszystkich 50 stanów w 2012 roku.  Silver dokonał tego poprzez połączenie danych z 21 różnych sondaży, które różnią się stopniem, w jakim skłaniają się ku stronie republikańskiej lub demokratycznej.  Każdy z tych sondaży zawierał dane od około 1000 prawdopodobnych wyborców - co oznacza, że Silver był w stanie prawie idealnie przewidzieć wzór głosowania ponad 125 milionów wyborców używając danych tylko od około 21 000 osób, wraz z inną wiedzą (taką jak to, jak te stany głosowały w przeszłości).
+
+## How do we sample? {#how-do-we-sample}
+
+Naszym celem w próbkowaniu jest określenie wartości statystyki dla całej interesującej nas populacji przy użyciu niewielkiego jej podzbioru.  Robimy to głównie po to, by zaoszczędzić czas i wysiłek - po co zadawać sobie trud mierzenia każdej osoby w populacji, skoro wystarczy mała próbka, by dokładnie oszacować interesującą nas statystykę?
+
+W przykładzie wyborów, populacja to wszyscy zarejestrowani wyborcy w badanym regionie, a próba to zbiór 1000 osób wybranych przez organizację badającą.  Sposób, w jaki wybieramy próbę, jest kluczowy dla zapewnienia, że próba jest *reprezentatywna* dla całej populacji, co jest głównym celem próbkowania statystycznego. Łatwo wyobrazić sobie niereprezentatywną próbę; jeśli ankieterzy dzwonili tylko do osób, których nazwiska otrzymali od lokalnej Partii Demokratycznej, to jest mało prawdopodobne, że wyniki badania będą reprezentatywne dla całej populacji.  Ogólnie rzecz biorąc, zdefiniowalibyśmy reprezentatywny sondaż jako taki, w którym każdy członek populacji ma równe szanse na bycie wybranym.  Kiedy to się nie udaje, musimy się martwić, czy statystyka, którą obliczamy na próbie jest *biased* - to znaczy, czy jej wartość jest systematycznie różna od wartości dla populacji (którą nazywamy *parametrem*).  Należy pamiętać, że zazwyczaj nie znamy tego parametru populacji, ponieważ gdybyśmy go znali, nie musielibyśmy pobierać próbek!  Użyjemy jednak przykładów, w których mamy dostęp do całej populacji, aby wyjaśnić niektóre z kluczowych idei.
+
+Ważne jest również rozróżnienie pomiędzy dwoma różnymi sposobami pobierania próbek: z zastąpieniem i bez zastąpienia.  W przypadku próbkowania *z zastąpieniem*, po pobraniu próby od członka populacji, jest on umieszczany z powrotem w puli, aby potencjalnie mógł zostać ponownie pobrany. W przypadku *próbkowania bez zastąpienia*, gdy członek populacji został już pobrany, nie kwalifikuje się do ponownego pobrania próbki. Najczęściej stosuje się próbkowanie bez zastąpienia, ale w pewnych kontekstach będziemy używać próbkowania z zastąpieniem, jak np. przy omawianiu techniki zwanej *bootstrappingiem* w rozdziale \@ref(resampling-and-simulation).
+
+## Błąd próbkowania {#samplingerror}
+Niezależnie od tego, jak reprezentatywna jest nasza próba, jest prawdopodobne, że statystyka, którą obliczymy z próby, będzie się przynajmniej nieznacznie różnić od parametru populacji.  Określamy to jako *błąd próby*. Jeśli pobieramy wiele próbek, wartość naszego oszacowania statystycznego również będzie się różnić w zależności od próbki; mówimy o tym rozkładzie naszej statystyki w różnych próbkach jako o *rozkładzie próbkowania*.  
+
+Błąd próbkowania jest bezpośrednio związany z jakością naszego pomiaru populacji. Oczywiście chcemy, aby szacunki uzyskane z naszej próby były jak najbardziej zbliżone do prawdziwej wartości parametru populacji.  Jednak nawet jeśli nasza statystyka jest bezstronna (czyli spodziewamy się, że będzie miała taką samą wartość jak parametr populacji), wartość dla każdego konkretnego oszacowania będzie się różnić od wartości populacji, a różnice te będą większe, gdy błąd próbkowania jest większy.  Tak więc, zmniejszenie błędu próby jest ważnym krokiem w kierunku lepszego pomiaru.
+
+Użyjemy zbioru danych NHANES jako przykładu; założymy, że zbiór danych NHANES jest całą interesującą nas populacją, a następnie będziemy losować próbki z tej populacji. W następnym rozdziale będziemy mieli więcej do powiedzenia na temat tego, jak dokładnie działa generowanie "losowych" próbek w komputerze.
+
+``{r echo=FALSE}
+# załaduj bibliotekę danych NHANES
+library(NHANES)
+
+# utwórz zbiór danych NHANES bez zduplikowanych identyfikatorów
+NHANES <-
+  NHANES %>%
+  distinct(ID, .keep_all = TRUE)
+
+#twórz zbiór danych tylko dla dorosłych
+NHANES_adult <-
+  NHANES %>%
+  filter(
+    !is.na(Wysokość),
+    Wiek >= 18
+  )
+
+```
+
+W tym przykładzie znamy średnią populacji dorosłych (`r I(mean(NHANES_adult$Height))`) i odchylenie standardowe (`r I(sd(NHANES_adult$Height))`) dla wzrostu, ponieważ zakładamy, że zbiór danych NHANES *jest* populacją. Tabela ‖ (tab:sampleExample) pokazuje statystyki obliczone na podstawie kilku próbek 50 osób z populacji NHANES.
+
+`{r sampleExample, echo=FALSE}
+# próbka 50 osób z zestawu danych NHANES
+sample_df <- data.frame(sampnum=seq(5), sampleMean=0, sampleSD=0)
+
+for (i in 1:5){
+  przykładPróbka <-
+    NHANES_adult %>%
+    sample_n(50) %>%
+    pull(Height)
+  sample_df$sampleMean[i] <- mean(exampleSample)
+  sample_df$sampleSD[i] <- sd(exampleSample)
+}
+sample_df <- sample_df %>%
+  dplyr::select(-sampnum)
+kable(sample_df, caption="Przykładowe średnie i odchylenia standardowe dla kilku próbek zmiennej Wysokość z NHANES.")
+```
+
+
+``{r echo=FALSE}
+# obliczyć średnie z próby przez 5000 prób z danych NHANES
+sampSize <- 50 # rozmiar próbki
+nsamps <- 5000 # liczba próbek, które pobierzemy
+
+# ustaw zmienną do przechowywania wszystkich wyników
+sampMeans <- array(NA, nsamps)
+
+# Pętla, wielokrotne próbkowanie i obliczanie średniej
+for (i in 1:nsamps) {
+  NHANES_sample <- sample_n(NHANES_adult, sampSize)
+  sampMeans[i] <- mean(NHANES_sample$Height)
+}
+
+sampMeans_df <- tibble(sampMeans = sampMeans)
+
+```
+
+Średnia i odchylenie standardowe próbki są podobne, ale nie dokładnie równe wartościom populacji.  Weźmy teraz dużą liczbę próbek po 50 osobników, obliczmy średnią dla każdej próbki i spójrzmy na wynikowy rozkład próbkowy środków. Musimy zdecydować, ile próbek wziąć, aby dobrze oszacować rozkład próbkowania - w tym przypadku weźmiemy 5000 próbek, abyśmy byli bardzo pewni odpowiedzi. Zauważ, że symulacje takie jak ta mogą czasami trwać kilka minut i mogą sprawić, że twój komputer będzie się drzeć i dmuchać. Histogram na rysunku pokazuje, że średnie oszacowane dla każdej z próbek 50 osobników różnią się nieco, ale ogólnie są skupione wokół średniej dla populacji.  Średnia z 5000 średnich próbnych (`r I(formatC(mean(sampMeans), digits=4, format='f'))`) jest bardzo bliska prawdziwej średniej populacji (`r I(formatC(mean(NHANES_adult$Height), digits=4, format='f'))`).
+
+
+``{r samplePlot,echo=FALSE,fig.cap="Niebieski histogram pokazuje rozkład próbkowania średniej na 5000 losowych próbek ze zbioru danych NHANES.  Histogram dla pełnego zbioru danych jest pokazany w kolorze szarym dla odniesienia.",fig.width=8,fig.height=4,out.height='50%'}
+
+sampMeans_df %>%
+  ggplot(aes(sampMeans)) +
+  geom_histogram(
+    data = NHANES_adult,
+    aes(Height, ..density...),
+    bins = 100, col = "gray", fill = "gray"
+  ) +
+  geom_histogram(
+    aes(y = ..gęstość... * 0.2),
+    bins = 100,
+    col = "blue", fill = "blue"
+  ) +
+  geom_vline(xintercept = mean(NHANES_adult$Height)) +
+  annotate(
+    "text",
+    x = 165,
+    y = .09,
+    label = "Population mean"
+  ) +
+  labs(
+      x = "Wysokość (cm)"
+  )
+```
+
+## Błąd standardowy średniej {#standard-error-of-the-mean}
+
+W dalszej części książki istotna stanie się możliwość scharakteryzowania, jak bardzo zmienne są nasze próbki, aby móc wnioskować o ich statystyce. W przypadku średniej robimy to za pomocą wielkości zwanej *błędem standardowym* średniej (SEM), który można rozumieć jako odchylenie standardowe rozkładu próbkowego średniej. Aby obliczyć błąd standardowy średniej dla naszej próby, dzielimy szacowane odchylenie standardowe przez pierwiastek kwadratowy z wielkości próby:
+
+$$
+SEM = ∑frac{hat{sigma}}{sqrt{n}}
+$$
+
+Zauważ, że musimy być ostrożni w obliczaniu SEM przy użyciu szacowanego odchylenia standardowego, jeśli nasza próba jest mała (mniej niż około 30).
+
+Ponieważ mamy wiele próbek z populacji NHANES i faktycznie znamy SEM populacji (który obliczamy dzieląc odchylenie standardowe populacji przez wielkość populacji), możemy potwierdzić, że SEM obliczony przy użyciu parametru populacji (`r I(formatC(sd(NHANES_adult$Height)/sqrt(sampSize), digits=2, format='f'))`) jest bardzo bliskie obserwowanemu odchyleniu standardowemu średnich dla próbek, które wzięliśmy ze zbioru danych NHANES (`r I(formatC(sd(sampMeans), digits=2, format='f'))`).  
+
+Wzór na błąd standardowy średniej sugeruje, że jakość naszego pomiaru obejmuje dwie wielkości: zmienność populacji oraz wielkość naszej próby.  Ponieważ wielkość próby jest mianownikiem we wzorze na SEM, większa próba da mniejszy SEM przy zachowaniu stałej zmienności populacji. Nie mamy kontroli nad zmiennością populacji, ale mamy kontrolę nad wielkością próby.  Tak więc, jeśli chcemy poprawić nasze statystyki próbek (poprzez zmniejszenie ich zmienności), powinniśmy użyć większych próbek.  Jednakże wzór ten mówi nam również coś bardzo fundamentalnego o statystycznym pobieraniu próbek - mianowicie, że użyteczność większych próbek maleje wraz z pierwiastkiem kwadratowym z wielkości próbki. Oznacza to, że podwojenie wielkości próby *nie* podwoi jakości statystyki; raczej poprawi ją o czynnik $sqrt{2}$.
+
+## Centralne twierdzenie graniczne {#the-central-limit-theorem}
+
+Centralne twierdzenie graniczne mówi nam, że w miarę zwiększania się liczebności próby, rozkład średniej stanie się rozkładem normalnym, *nawet jeśli dane w każdej próbie nie są rozkładem normalnym*.  
+
+Najpierw powiedzmy trochę o rozkładzie normalnym. Znany jest on również jako rozkład *Gaussowski*, od nazwiska Carla Friedricha Gaussa, matematyka, który go nie wymyślił, ale odegrał rolę w jego rozwoju.  Rozkład normalny jest opisywany za pomocą dwóch parametrów: średniej (którą można rozumieć jako położenie szczytu) oraz odchylenia standardowego (które określa szerokość rozkładu).  Dzwonowaty kształt rozkładu nigdy się nie zmienia, zmienia się tylko jego położenie i szerokość.  Rozkład normalny jest powszechnie obserwowany w danych zebranych w świecie rzeczywistym, jak już widzieliśmy w rozdziale 3 --- i centralne twierdzenie graniczne daje nam pewien wgląd w to, dlaczego tak się dzieje.
+
+Aby zobaczyć centralne twierdzenie graniczne w działaniu, popracujmy ze zmienną AlcoholYear z zestawu danych NHANES, która jest wysoce skośna, jak pokazano w lewym panelu na rysunku \ref(fig:alcDist50). Ten rozkład jest, z braku lepszego słowa, dziwny -- i zdecydowanie nie jest rozkładem normalnym.  Przyjrzyjmy się teraz rozkładowi próbkowemu średniej dla tej zmiennej. Rysunek pokazuje rozkład próbkowania dla tej zmiennej, uzyskany przez wielokrotne losowanie próbek o rozmiarze 50 ze zbioru danych NHANES i pobieranie średniej. Pomimo wyraźnego braku normalności oryginalnych danych, rozkład próbkowania jest niezwykle bliski normalnemu.
+
+``{r, echo=FALSE}
+# utwórz funkcję rozkładu próbkowania
+
+get_sampling_dist <- function(sampSize, nsamps = 2500) {
+  sampMeansFull <- array(NA, nsamps)
+  NHANES_clean <- NHANES %>%
+    drop_na(AlcoholYear)
+
+  for (i in 1:nsamps) {
+    NHANES_sample <- sample_n(NHANES_clean, sampSize)
+    sampMeansFull[i] <- mean(NHANES_sample$AlcoholYear)
+  }
+  sampMeansFullDf <- data.frame(sampMeans = sampMeansFull)
+
+  p2 <- ggplot(sampMeansFullDf, aes(sampMeans)) +
+    geom_freqpoly(aes(y = ..density...), bins = 100, color = "blue", size = 0.75) +
+    stat_function(
+      fun = dnorm, n = 100,
+      args = list(
+        mean = mean(sampMeansFull),
+        sd = sd(sampMeansFull)
+      ), size = 1.5, color = "red"
+    ) +
+    xlab("średnia AlcoholYear")
+  return(p2)
+}
+
+```
+
+``{r alcDist50,echo=FALSE,fig.cap="Po lewej: Rozkład zmiennej AlcoholYear w zbiorze danych NHANES, która odzwierciedla liczbę dni, w których dana osoba piła w ciągu roku. Po prawej: Rozkład próbkowania średniej dla AlcoholYear w zbiorze danych NHANES, uzyskany przez losowanie powtarzalnych próbek o wielkości 50, w kolorze niebieskim.  Rozkład normalny z taką samą średnią i odchyleniem standardowym pokazany jest na czerwono.", fig.width=8,fig.height=4,out.height='50%'}
+
+NHANES_cleanAlc <- NHANES %>%.
+  drop_na(AlcoholYear)
+p1 <- ggplot(NHANES_cleanAlc, aes(AlcoholYear)) +
+  geom_histogram(binwidth = 7)
+
+p2 <- get_sampling_dist(50)
+plot_grid(p1,p2)
+```
+
+Centralne twierdzenie graniczne jest ważne dla statystyki, ponieważ pozwala nam bezpiecznie założyć, że rozkład próbkowania średniej będzie normalny w większości przypadków. Oznacza to, że możemy skorzystać z technik statystycznych, które zakładają rozkład normalny, jak zobaczymy w następnym rozdziale.  Jest to również ważne, ponieważ mówi nam, dlaczego rozkłady normalne są tak powszechne w świecie rzeczywistym; za każdym razem, gdy łączymy wiele różnych czynników w jedną liczbę, wynik prawdopodobnie będzie rozkładem normalnym. Na przykład wzrost każdego dorosłego człowieka zależy od złożonej mieszanki jego genetyki i doświadczenia; nawet jeśli te indywidualne wkłady mogą nie mieć rozkładu normalnego, to kiedy je połączymy, rezultatem będzie rozkład normalny.
+
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Odróżnić populację od próbki oraz parametry populacji od statystyki próbki.
+* Opisać pojęcia błędu próby i rozkładu próby.
+* Obliczyć błąd standardowy średniej.
+* Opisać, w jaki sposób Centralne Twierdzenie Graniczne określa naturę rozkładu próbkowego średniej
+
+## Sugerowane lektury.
+
+- The Signal and the Noise: Why So Many Predictions Fail - But Some Don't*, autorstwa Nate'a Silvera

@@ -1,0 +1,622 @@
+---
+output:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+# Bayesian statistics {#bayesian-statistics}
+
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(boot)
+library(MASS)
+library(BayesFactor)
+library(knitr)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID, .keep_all = TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Weight) %>%
+  subset(Age >= 18)
+
+```
+
+
+W tym rozdziale zajmiemy się podejściem do modelowania statystycznego i wnioskowania, które stoi w opozycji do ram testowania hipotez zerowych, z którymi zetknąłeś się w rozdziale \(testowanie hipotez).  Jest ono znane jako "statystyka Bayesa" od nazwiska księdza Thomasa Bayesa, z którego twierdzeniem zetknąłeś się już w rozdziale \(prawdopodobieństwo).  W tym rozdziale dowiesz się, jak twierdzenie Bayesa zapewnia sposób rozumienia danych, który rozwiązuje wiele problemów koncepcyjnych, które omawialiśmy w odniesieniu do testowania hipotez zerowych, a jednocześnie wprowadza pewne nowe wyzwania.
+
+## Modele generatywne
+
+Powiedzmy, że idziesz ulicą i twój przyjaciel przechodzi tuż obok, ale nie mówi cześć.  Prawdopodobnie próbowałbyś ustalić, dlaczego tak się stało - czy oni Cię nie zauważyli?  Czy są na ciebie źli?  Czy nagle zostałeś okryty magiczną tarczą niewidzialności?  Jedną z podstawowych idei stojących za statystyką Bayesa jest to, że chcemy wywnioskować szczegóły tego, jak dane są generowane, na podstawie samych danych.  W tym przypadku chcesz użyć danych (tj. faktu, że twój przyjaciel nie powiedział "hello"), aby wywnioskować proces, który wygenerował dane (np. czy faktycznie cię widział, czy nie, jak się z tobą czują itp.)  
+
+Idea modelu generatywnego polega na tym, że *latentny* (niewidoczny) proces generuje dane, które obserwujemy, zwykle z pewną dozą losowości w procesie. Kiedy bierzemy próbkę danych z populacji i szacujemy parametr z próbki, to w istocie próbujemy nauczyć się wartości zmiennej ukrytej (średniej populacji), która poprzez próbkowanie daje początek obserwowanym danym (średnia próbki).  
+
+``{r GenerativeModel, echo=FALSE,fig.cap="Schemat idei modelu generatywnego.",fig.width=6, out.width="80%"}
+knitr::include_graphics("images/BayesianInference.png")
+```
+
+Jeśli znamy wartość zmiennej latentnej, to łatwo jest zrekonstruować, jak powinny wyglądać dane obserwowane.  Na przykład, powiedzmy, że rzucamy monetą, o której wiemy, że jest uczciwa, tak, że spodziewamy się, że wyląduje na głowie w 50% przypadków.  Możemy opisać monetę rozkładem dwumianowym o wartości $P_{heads}=0,5$, a następnie moglibyśmy wygenerować losowe próbki z takiego rozkładu, aby zobaczyć, jak powinny wyglądać obserwowane dane. Na ogół jednak jesteśmy w odwrotnej sytuacji: Nie znamy wartości interesującej nas zmiennej latentnej, ale mamy pewne dane, które chcielibyśmy wykorzystać do jej oszacowania.
+
+## Twierdzenie Bayesa i wnioskowanie odwrotne
+
+Powodem, dla którego statystyka bayesowska ma swoją nazwę, jest fakt, że wykorzystuje ona twierdzenie Bayesa do wnioskowania z danych o procesie, który je wygenerował.  Załóżmy, że chcemy wiedzieć, czy moneta jest sprawiedliwa.  Aby to sprawdzić, rzucamy monetą 10 razy i otrzymujemy 7 reszek.  Przed tym testem byliśmy całkiem pewni, że $P_{heads}=0,5$, ale znalezienie 7 głów na 10 rzutów z pewnością dałoby nam do myślenia, gdybyśmy wierzyli, że $P_{heads}=0,5$.  Wiemy już, jak obliczyć warunkowe prawdopodobieństwo, że wyrzucilibyśmy 7 lub więcej głów na 10, jeśli moneta jest naprawdę uczciwa ($P(n|p_{heads}=0,5)$), używając rozkładu dwumianowego.
+
+
+``{r echo=FALSE}
+# *TBD: MOTIVATE SWITCH FROM 7 TO 7 OR MORE*
+```
+
+Otrzymane prawdopodobieństwo to `r I(sprintf("%.3f",pbinom(7, 10, .5, lower.tail = FALSE)))`.  Jest to dość mała liczba, ale ta liczba tak naprawdę nie odpowiada na pytanie, które zadajemy -- mówi nam o prawdopodobieństwie 7 lub więcej głów biorąc pod uwagę pewne szczególne prawdopodobieństwo głów, podczas gdy to, co naprawdę chcemy wiedzieć, to prawdziwe prawdopodobieństwo głów dla tej konkretnej monety. Powinno to brzmieć znajomo, ponieważ jest to dokładnie taka sama sytuacja, w jakiej byliśmy przy testowaniu hipotezy zerowej, która mówiła nam o prawdopodobieństwie danych, a nie prawdopodobieństwie hipotez.
+
+Pamiętaj, że twierdzenie Bayesa dostarcza nam narzędzia, którego potrzebujemy do odwrócenia prawdopodobieństwa warunkowego:
+
+$$
+P(H|D) = ˆfrac{P(D|H)*P(H)}{P(D)}
+$$
+
+Możemy myśleć o tym twierdzeniu jako o składającym się z czterech części:
+
+- *prior* ($P(Hipoteza)$): Nasz stopień przekonania o hipotezie H przed zobaczeniem danych D
+- *prawdopodobieństwo* ($P(Dane|Hypoteza)$): Jak bardzo prawdopodobne są obserwowane dane D przy hipotezie H?
+- *marginalne prawdopodobieństwo* ($P(Dane)$): Jak bardzo prawdopodobne są obserwowane dane, łącząc po wszystkich możliwych hipotezach?
+- *posterior* ($P(Hipoteza|Dane)$): Nasze zaktualizowane przekonanie na temat hipotezy H, biorąc pod uwagę dane D
+
+W przypadku naszego przykładu z rzucaniem monetą:
+
+- *prior* ($P_{heads}$): Nasz stopień przekonania o prawdopodobieństwie wyrzucenia reszki, który wynosił $P_{heads}=0,5$.
+- *prawdopodobieństwo* ($P(7 lub więcej głów na 10 rzutów}|P_{heads}=0,5)$): Jak prawdopodobne jest 7 lub więcej głów na 10 rzutów, jeśli $P_{heads}=0,5)$?
+- *marginal likelihood* ($P(\u2007 lub więcej głów na 10 rzutów})$): Jak bardzo prawdopodobne jest, że zaobserwujemy 7 głów na 10 rzutów monetą, w ogólności?
+- *posterior* ($P_{głowy}|tekst{7 lub więcej głów na 10 rzutów monetą})$): Nasze zaktualizowane przekonanie o $P_{głowy}$ biorąc pod uwagę obserwowane rzuty monetą.
+
+Tutaj widzimy jedną z podstawowych różnic między statystyką częstościową a bayesowską. Statystycy częstościowi nie wierzą w ideę prawdopodobieństwa hipotezy (tj. naszego stopnia przekonania o hipotezie) - dla nich hipoteza jest albo prawdziwa, albo nie. Innym sposobem powiedzenia tego jest to, że dla częstościowca hipoteza jest stała, a dane są losowe, dlatego wnioskowanie częstościowe skupia się na opisie prawdopodobieństwa danych przy danej hipotezie (tj. wartości p). Z drugiej strony, bayesiści mogą swobodnie formułować stwierdzenia dotyczące prawdopodobieństwa zarówno danych, jak i hipotez.
+
+## Szacowanie bayesowskie {#doing-bayesian-estimation}
+
+Ostatecznie chcemy użyć statystyki Bayesa do podjęcia decyzji o hipotezach, ale zanim to zrobimy, musimy oszacować parametry, które są niezbędne do podjęcia decyzji. Tutaj przejdziemy przez proces estymacji bayesowskiej.  Posłużmy się innym przykładem kontroli bezpieczeństwa: Kontrola bezpieczeństwa na lotnisku.  Jeśli dużo latasz, to tylko kwestia czasu, aż jeden z losowych testów materiałów wybuchowych wypadnie pozytywnie; miałem szczególnie niefortunne doświadczenie, że stało się to wkrótce po 11 września 2001 roku, kiedy pracownicy ochrony lotniska byli szczególnie czujni.  
+
+Pracownicy ochrony chcą wiedzieć, jakie jest prawdopodobieństwo, że dana osoba ma przy sobie materiał wybuchowy, biorąc pod uwagę, że urządzenie dało pozytywny wynik.  Prześledźmy, jak obliczyć tę wartość za pomocą analizy bayesowskiej.
+
+### Określenie priorytetu
+
+Aby użyć twierdzenia Bayesa, musimy najpierw określić wcześniejsze prawdopodobieństwo dla hipotezy.  W tym przypadku nie znamy prawdziwej liczby, ale możemy założyć, że jest ona dość mała.  Według danych [FAA](https://www.faa.gov/air_traffic/by_the_numbers/media/Air_Traffic_by_the_Numbers_2018.pdf) w 2017 roku w USA było 971 595 898 pasażerów lotniczych.  Powiedzmy, że jeden z tych podróżnych przewoził w swojej torbie materiał wybuchowy --- to dałoby wcześniejsze prawdopodobieństwo 1 na 971 milionów, czyli bardzo małe!  Personel bezpieczeństwa mógł zasadnie utrzymywać silniejszy prior w miesiącach po ataku 9/11, więc powiedzmy, że ich subiektywne przekonanie było takie, że jeden na każdy milion lotników miał przy sobie materiał wybuchowy.
+
+``{r echo=FALSE}
+bayes_df = data.frame(prior=NA,
+                      likelihood=NA,
+                      marginal_likelihood=NA,
+                      posterior=NA)
+
+bayes_df$prior <- 1/10000
+
+
+nTesty <- 3
+nPositives <- 3
+czułość <- 0.99
+specyficzność <- 0.99
+
+bayes_df$likelihood <- dbinom(nPositives, nTests, 0.99)
+
+bayes_df$marginal_likelihood <-
+  dbinom(
+    x = nPositives,
+    size = nTests,
+    prob = czułość
+  ) * bayes_df$prior +
+  dbinom(
+    x = nPositives,
+    size = nTests,
+    prob = 1 - specyficzność
+  ) *
+  (1 - bayes_df$prior)
+
+bayes_df$posterior <- (bayes_df$likelihood * bayes_df$prior) / bayes_df$marginal_likelihood
+
+```
+
+### Zbierz trochę danych
+
+Dane składają się z wyników badania przesiewowego materiałów wybuchowych.  Powiedzmy, że pracownicy ochrony przepuszczają torbę przez swoją aparaturę testową `r I(nTests)` razy, i daje ona pozytywny odczyt na `r I(nPositives)` z `r I(nTests)` testów.
+
+### Obliczanie prawdopodobieństwa
+
+Chcemy obliczyć prawdopodobieństwo danych przy hipotezie, że w torbie znajduje się materiał wybuchowy.  Powiedzmy, że wiemy (od producenta urządzenia), że czułość testu wynosi `r I(sprintf('%.2f',sensitivity))` -- czyli gdy urządzenie jest obecne, wykryje je `r I(sprintf('%.0f%%',sensitivity*100))` czasu. Aby określić prawdopodobieństwo naszych danych przy hipotezie, że urządzenie jest obecne, możemy potraktować każdy test jako próbę Bernoulliego (czyli próbę z wynikiem prawda lub fałsz) z prawdopodobieństwem sukcesu `r I(sprintf('%.2f',sensitivity))`, które możemy modelować używając rozkładu dwumianowego.
+
+
+### Obliczanie prawdopodobieństwa krańcowego
+
+Musimy również znać ogólne prawdopodobieństwo danych -- czyli znalezienie `r I(nPositives)` pozytywów z `r I(nTests)` testów. Obliczanie prawdopodobieństwa krańcowego jest często jednym z najtrudniejszych aspektów analizy bayesowskiej, ale dla naszego przykładu jest to proste, ponieważ możemy skorzystać ze specyficznej postaci twierdzenia Bayesa dla wyniku binarnego, które wprowadziliśmy w rozdziale \u2001:
+
+$$
+P(E|T) = \frac{P(T|E)*P(E)}{P(T|E)*P(E) + P(T|neg E)*P(\E)}
+$$
+
+gdzie $E$ odnosi się do obecności materiałów wybuchowych, a $T$ do pozytywnego wyniku testu.
+
+Prawdopodobieństwo krańcowe w tym przypadku jest średnią ważoną prawdopodobieństwa danych w przypadku obecności lub braku materiału wybuchowego, pomnożoną przez prawdopodobieństwo obecności materiału wybuchowego (tj. prior).  W tym przypadku, powiedzmy, że wiemy (od producenta), że specyficzność testu jest `r I(sprintf('%.2f', specyficzność))`, tak, że prawdopodobieństwo pozytywnego wyniku, gdy nie ma materiału wybuchowego ($P(T|Eg E)$) jest `r I(sprintf('%.2f', 1 - specyficzność))`.
+
+### Computing the posterior
+
+
+Mamy teraz wszystkie części, które potrzebujemy, aby obliczyć prawdopodobieństwo potomne eksplozji jest obecny, biorąc pod uwagę obserwowane `r I(nPositives)` pozytywne wyniki z `r I(nTests)` testów.  
+Ten wynik pokazuje nam, że prawdopodobieństwo potomne materiału wybuchowego w torbie, biorąc pod uwagę te pozytywne testy (`r I(sprintf('%.3f', bayes_df$posterior))`) jest tylko poniżej 50%, ponownie podkreślając fakt, że testowanie dla rzadkich zdarzeń jest prawie zawsze zdolne do wytworzenia dużej liczby fałszywych wyników pozytywnych, nawet gdy specyficzność i czułość są bardzo wysokie.
+
+Ważnym aspektem analizy bayesowskiej jest to, że może być ona sekwencyjna.  Kiedy już mamy posterior z jednej analizy, może on stać się priorytem dla następnej analizy!
+
+## Estymacja rozkładów potomnych {#estimating-posterior-distributions}
+
+W poprzednim przykładzie były tylko dwa możliwe wyniki - materiał wybuchowy jest albo go nie ma - i chcieliśmy wiedzieć, który wynik jest najbardziej prawdopodobny biorąc pod uwagę dane.  Jednak w innych przypadkach chcemy użyć estymacji bayesowskiej do oszacowania wartości liczbowej parametru.  Powiedzmy, że chcemy się dowiedzieć o skuteczności nowego leku na ból; aby to sprawdzić, możemy podać lek grupie pacjentów, a następnie zapytać ich, czy ich ból uległ poprawie, czy nie po zażyciu leku.  Możemy zastosować analizę Bayesa, aby oszacować odsetek osób, dla których lek będzie skuteczny, wykorzystując te dane.
+
+### Określenie priorytetu
+
+``{r echo=FALSE}
+# *TBD: MH: USE PRIOR BIASED TOWARDS ZERO?*
+```
+
+
+W tym przypadku nie mamy żadnej wcześniejszej informacji o skuteczności leku, więc użyjemy *jednolitego rozkładu* jako naszego priorytetu, ponieważ wszystkie wartości są równie prawdopodobne w ramach jednolitego rozkładu.  Aby uprościć przykład, będziemy rozpatrywać tylko podzbiór 99 możliwych wartości skuteczności (od .01 do .99, w krokach co .01). Dlatego każda możliwa wartość ma prawdopodobieństwo wstępne 1/99.
+
+### Zbierz trochę danych
+
+
+``{r echo=FALSE}
+# utwórz tabelę z wynikami
+nResponders <- 64
+nTested <- 100
+
+drugDf <- tibble(
+  outcome = c("improved", "not improved"),
+  number = c(nResponders, nTested - nResponders)
+)
+
+```
+
+Potrzebujemy pewnych danych, aby oszacować efekt działania leku.  Powiedzmy, że podajemy lek 100 osobom, stwierdzamy, że `r I(nResponders)` odpowiada pozytywnie na lek.
+
+### Obliczanie prawdopodobieństwa
+
+Możemy obliczyć prawdopodobieństwo obserwowanych danych pod każdą konkretną wartością parametru skuteczności, używając funkcji gęstości dwumianowej. Na rysunku ‖ można zobaczyć krzywe prawdopodobieństwa nad liczbą respondentów dla kilku różnych wartości $P_{respond}$. Patrząc na to, wydaje się, że nasze obserwowane dane są stosunkowo bardziej prawdopodobne przy hipotezie $P_{respond}=0,7$, nieco mniej prawdopodobne przy hipotezie $P_{respond}=0,5$, a zupełnie nieprawdopodobne przy hipotezie $P_{respond}=0,3$.  Jedną z podstawowych idei wnioskowania bayesowskiego jest to, że powinniśmy zwiększyć wagę naszego przekonania o wartościach naszego interesującego nas parametru proporcjonalnie do tego, jak prawdopodobne są dane przy tych wartościach, w porównaniu z tym, co sądziliśmy o wartościach parametru zanim zobaczyliśmy dane (nasza wiedza uprzednia).
+
+
+``{r like2,echo=FALSE,fig.cap='Prawdopodobieństwo każdej możliwej liczby respondentów przy kilku różnych hipotezach (p(respond)=0,5 (stałe), 0,7 (kropkowane), 0,3 (przerywane).  Obserwowana wartość pokazana w pionowej linii",fig.width=4,fig.height=4,out.height='50%'}
+
+likeDf <-
+  tibble(resp = seq(1,99,1)) %>%
+  mutate(
+    presp=resp/100,
+    likelihood5 = dbinom(resp,100,.5),
+    likelihood7 = dbinom(resp,100,.7),
+    likelihood3 = dbinom(resp,100,.3)
+)
+
+ggplot(likeDf,aes(resp,likelihood5)) +
+  geom_line() +
+  xlab('liczba respondentów') + ylab('prawdopodobieństwo') +
+  geom_vline(xintercept = drugDf$number[1],color='blue') +
+  geom_line(aes(resp,likelihood7),linetype='dotted') +
+  geom_line(aes(resp,likelihood3),linetype='dashed')
+
+
+```
+
+### Obliczanie prawdopodobieństwa krańcowego
+
+Oprócz prawdopodobieństwa danych przy różnych hipotezach, musimy znać ogólne prawdopodobieństwo danych, łączące się przez wszystkie hipotezy (tj. prawdopodobieństwo krańcowe). To marginalne prawdopodobieństwo jest ważne przede wszystkim dlatego, że pomaga zapewnić, że wartości posterior są prawdziwymi prawdopodobieństwami. W tym przypadku, nasze użycie zestawu dyskretnych możliwych wartości parametrów ułatwia obliczenie prawdopodobieństwa krańcowego, ponieważ możemy po prostu obliczyć prawdopodobieństwo każdej wartości parametru w każdej hipotezie i dodać je.
+
+``{r ,echo=FALSE}
+* *MH:* nie jestem pewien, czy w tym punkcie omówiono jasno marginalne prawdopodobieństwo. jest to myląca i bardzo głęboka konstrukcja. ogólne prawdopodobieństwo danych jest prawdopodobieństwem danych pod każdą hipotezą, uśrednionym razem (ważonym przez) wcześniejsze prawdopodobieństwo tych hipotez. jest to jak prawdopodobne są dane pod twoimi wcześniejszymi przekonaniami na temat hipotez.
+
+# Może warto pomyśleć o dwóch przykładach, gdzie prawdopodobieństwo danych pod tą hipotezą jest takie samo, ale gdzie marginalne prawdopodobieństwo się zmienia, tzn. hipoteza jest całkiem dobra w przewidywaniu danych, podczas gdy inne hipotezy są złe vs. inne hipotezy są zawsze dobre (może lepsze)
+```
+
+``{r echo=FALSE}
+# obliczamy prawdopodobieństwo krańcowe
+likeDf <-
+  likeDf %>%
+  mutate(uniform_prior = array(1 / n()))
+
+# pomnóż każde prawdopodobieństwo przez prior i dodaj je do siebie
+marginal_likelihood <-
+  suma(
+    dbinom(
+      x = nResponders, # liczba osób, które odpowiedziały na lek
+      size = 100, # liczba badanych
+      likeDf$presp # prawdopodobieństwo każdej odpowiedzi
+    ) * likeDf$uniform_prior
+  )
+
+```
+
+### Obliczanie rozkładu potomnego
+
+Mamy teraz wszystkie elementy, których potrzebujemy, aby obliczyć posteriorowy rozkład prawdopodobieństwa na wszystkich możliwych wartościach $p_{respond}$, jak pokazano na rysunku \N(fig:posteriorDist).
+
+``{r echo=FALSE}
+# Tworzenie danych do użycia w figurze
+bayesDf <-
+  tibble(
+    steps = seq(from = 0.01, to = 0.99, by = 0.01)
+  ) %>%
+  mutate(
+    likelihoods = dbinom(
+      x = nResponders,
+      size = 100,
+      prob = kroki
+    ),
+    priors = dunif(steps) / length(steps),
+    posteriors = (likelihoods * priors) / marginal_likelihood
+  )
+```
+
+``{r posteriorDist,echo=FALSE,fig.cap="Posteriorny rozkład prawdopodobieństwa dla obserwowanych danych wykreślony linią ciągłą w stosunku do jednolitego rozkładu wstępnego (linia kropkowana). Maksymalna wartość a posteriori (MAP) jest oznaczona symbolem diamentu.",fig.width=4,fig.height=4,out.height='50%'}
+
+# oblicz szacunek MAP
+MAP_estimate <-
+  bayesDf %>%
+  arrange(desc(posteriors)) %>%
+  slice(1) %>%
+  pull(steps)
+
+
+# oblicz prawdopodobieństwa dla obserwowanych danych przy wszystkich wartościach p(heads). tutaj używamy skwantowanych wartości od .01 do .99 w krokach co 0.01
+
+
+ggplot(bayesDf,aes(steps,posteriors)) +
+  geom_line() +
+  geom_line(aes(steps,priors),color='black',linetype='dotted') +
+  xlab('p(respond)') + ylab('posterior probability of the observed data') +
+  annotate(
+    "point",
+    x = MAP_estimate,
+    y = max(bayesDf$posteriors), shape=9,
+    size = 3
+  )
+
+
+```
+
+### Estymacja maksymalna a posteriori (MAP)
+
+Biorąc pod uwagę nasze dane chcielibyśmy uzyskać oszacowanie $p_{respond}$ dla naszej próby.  Jednym ze sposobów, aby to zrobić jest znalezienie wartości $p_{respond}$, dla której prawdopodobieństwo potomne jest największe, co nazywamy *maksymalną estymacją a posteriori* (MAP).  Możemy to znaleźć z danych w \ref(fig:posteriorDist) --- jest to wartość pokazana znacznikiem na górze rozkładu.  Zauważ, że wynik (`r I(MAP_estimate)`) jest po prostu proporcją respondentów z naszej próbki -- dzieje się tak, ponieważ prior był jednolity i dlatego nie wpłynął na nasze oszacowanie.
+
+### Wiarygodne przedziały
+
+Często chcielibyśmy znać nie tylko pojedynczą estymację dla posterioru, ale przedział, w którym jesteśmy pewni, że posterior się mieści.  Wcześniej omawialiśmy pojęcie przedziałów ufności w kontekście wnioskowania częstościowego i być może pamiętasz, że interpretacja przedziałów ufności była szczególnie zagmatwana: Był to przedział, który będzie zawierał wartość parametru w 95% przypadków.  To, czego naprawdę chcemy, to przedział, w którym jesteśmy pewni, że prawdziwy parametr wypada, a statystyka bayesowska może dać nam taki przedział, który nazywamy *credible interval*.
+
+
+``{r ,echo=FALSE}
+# *TBD: USE POSTERIOR FROM ABOVE*
+
+```
+
+Interpretacja tego wiarygodnego przedziału jest znacznie bliższa temu, co mieliśmy nadzieję uzyskać z przedziału ufności (ale nie mogliśmy): Mówi nam, że istnieje 95% prawdopodobieństwo, że wartość $p_{respond}$ mieści się pomiędzy tymi dwoma wartościami.  Co ważne, w tym przypadku pokazuje, że mamy duże zaufanie, że $p_{respond} > 0,0$, co oznacza, że lek wydaje się mieć pozytywne działanie.
+
+W niektórych przypadkach przedział wiarygodności może być obliczony *numerycznie* na podstawie znanego rozkładu, ale bardziej powszechne jest generowanie przedziału wiarygodności poprzez próbkowanie z rozkładu potomnego, a następnie obliczanie kwantyli próbek. Jest to szczególnie przydatne, gdy nie mamy łatwego sposobu na numeryczne wyrażenie rozkładu potomnego, co często ma miejsce w rzeczywistej analizie danych bayesowskich.  Jedna z takich metod (rejection sampling) jest wyjaśniona bardziej szczegółowo w dodatku na końcu tego rozdziału.
+
+### Wpływ różnych priorytetów
+
+W poprzednim przykładzie użyliśmy *płaskiego priorytetu*, co oznacza, że nie mieliśmy żadnego powodu, by sądzić, że jakaś konkretna wartość $p_{respond}$ była bardziej lub mniej prawdopodobna.  Powiedzmy jednak, że zamiast tego zaczęliśmy od pewnych wcześniejszych danych: W poprzednim badaniu naukowcy przetestowali 20 osób i stwierdzili, że 10 z nich odpowiedziało pozytywnie.  To doprowadziłoby nas do rozpoczęcia z uprzednim przekonaniem, że leczenie przynosi efekty u 50% ludzi.  Możemy wykonać to samo obliczenie co powyżej, ale używając informacji z poprzedniego badania do poinformowania naszego priorytetu (patrz panel A na rysunku).  
+
+``{r ,echo=FALSE}
+
+# *MH:* Zastanawiam się, co tu robisz: czy to jest to samo, co robienie wnioskowania bayesowskiego, zakładając dane 10 / 20 i używając posterior z tego jako prior dla tej analizy? to jest to, co normalnie byłoby prostą rzeczą do zrobienia.
+
+```
+
+``{r echo=FALSE}
+# compute likelihoods for data under all values of p(heads)
+# używając płaskiego lub empirycznego priorytetu.  
+# tutaj używamy skwantowanych wartości od .01 do .99 w krokach co 0.01
+
+df <-
+  tibble(
+    steps = seq(from = 0.01, to = 0.99, by = 0.01)
+  ) %>%
+  mutate(
+    likelihoods = dbinom(nResponders, 100, steps),
+    priors_flat = dunif(steps) / sum(dunif(steps)),
+    priors_empirical = dbinom(10, 20, kroki) / sum(dbinom(10, 20, kroki))
+  )
+
+marginal_likelihood_flat <-
+  sum(dbinom(nResponders, 100, df$steps) * df$priors_flat)
+
+marginal_likelihood_empiryczny <-
+  suma(dbinom(nOdpowiedzi, 100, df$stepy) * df$priors_empiryczny)
+
+df <-
+  df %>%
+  mutate(
+    posteriors_flat =
+      (likelihoods * priors_flat) / marginal_likelihood_flat,
+    posteriors_empirical =
+      (prawdopodobieństwo * priors_empirical) / marginal_likelihood_empirical
+  )
+
+p1 <- ggplot(df, aes(steps, posteriors_flat)) +
+  geom_line(color = "blue") +
+  xlab("p(głowy)") + ylab("Posterior probability") +
+  geom_line(aes(steps, posteriors_empirical)), color = "red") +
+  geom_line(aes(steps, priors_empirical), linetype = "dotted")
+
+```
+
+Zauważ, że prawdopodobieństwo i prawdopodobieństwo krańcowe nie zmieniły się - zmienił się tylko prior.  Skutkiem zmiany priorytetu było zbliżenie posterioru do masy nowego priorytetu, który jest wyśrodkowany na 0,5.  
+
+Zobaczmy teraz, co się stanie, jeśli podejdziemy do analizy z jeszcze silniejszym przekonaniem o priorytecie.  Powiedzmy, że zamiast zaobserwować 10 respondentów na 20 osób, w poprzednim badaniu przetestowano 500 osób i znaleziono 250 respondentów.  To w zasadzie powinno dać nam znacznie silniejszy prior, i jak widzimy w panelu B na rysunku \"fig:posteriorDistPrior\", tak właśnie się dzieje: Prior jest znacznie bardziej skoncentrowany wokół 0,5, a posterior jest również znacznie bliższy priorowi.  Ogólna idea jest taka, że wnioskowanie bayesowskie łączy informacje z priora i prawdopodobieństwa, ważąc względną siłę każdego z nich.
+
+``{r echo=FALSE}
+# oblicz prawdopodobieństwa dla danych pod wszystkimi wartościami p(głowy) używając silnego prior.
+
+df <-
+  df %>%
+  mutate(
+    priors_strong = dbinom(250, 500, kroki) / sum(dbinom(250, 500, kroki))
+  )
+
+marginal_likelihood_strong <-
+  sum(dbinom(nResponders, 100, df$steps) * df$priors_strong)
+
+df <-
+  df %>%
+  mutate(
+    posteriors_strongprior = (likelihoods * priors_strong) / marginal_likelihood_strong
+  )
+
+p2 <- ggplot(df,aes(steps,posteriors_empirical)) +
+  geom_line(color='blue') +
+  xlab('p(heads)') + ylab('Posterior probability') +
+  geom_line(aes(steps,posteriors_strongprior),color='red') +
+  geom_line(aes(steps,priors_strong),linetype='dotted')
+
+
+```
+
+
+Przykład ten podkreśla również sekwencyjną naturę analizy bayesowskiej -- posterior z jednej analizy może stać się priorytem dla następnej analizy.
+
+Wreszcie, ważne jest, aby zdać sobie sprawę, że jeśli priorytety są wystarczająco silne, mogą całkowicie przytłoczyć dane.  Powiedzmy, że mamy absolutny priorytet, że $p_{respond}$ jest 0,8 lub większy, taki, że ustawiamy prior prawdopodobieństwa wszystkich innych wartości na zero.  Co się stanie, jeśli następnie obliczymy posterior?
+
+``{r echo=FALSE}
+# oblicz prawdopodobieństwa dla danych pod wszystkimi wartościami p(respond) używając absolutnego priorytetu.
+df <-
+  df %>%
+  mutate(
+    priors_absolute = array(data = 0, dim = length(steps)),
+    priors_absolute = if_else(
+      kroki >= 0.8,
+      1, priors_absolute
+    ),
+    priors_absolute = priors_absolute / sum(priors_absolute)
+  )
+
+marginal_likelihood_absolute <-
+  sum(dbinom(nResponders, 100, df$steps) * df$priors_absolute)
+
+df <-
+  df %>%
+  mutate(
+    posteriors_absolute =
+      (prawdopodobieństwo * priors_absolute) / marginal_likelihood_absolute
+  )
+
+```
+
+``{r posteriorDistPrior,echo=FALSE,fig.cap="A: Wpływ priorytetów na rozkład potomny.  Oryginalny rozkład potomny oparty na płaskim priorytecie jest wykreślony na niebiesko. Prior oparty na obserwacji 10 respondentów z 20 osób jest zaznaczony czarną przerywaną linią, a posterior wykorzystujący ten prior jest zaznaczony na czerwono.  B: Wpływ siły priorytetu na rozkład potomny. Niebieska linia pokazuje posterior uzyskany przy użyciu priorytetu opartego na 50 głowach na 100 osób.  Czarna przerywana linia pokazuje prior na podstawie 250 głów z 500 rzutów, a czerwona linia pokazuje posterior na podstawie tego prior. C: Wpływ siły priorytetu na rozkład potomny. Niebieska linia pokazuje posterior uzyskany przy użyciu absolutnego priorytetu, który mówi, że p(respond) jest 0,8 lub większe.  Prior jest pokazany w czarnej przerywanej linii.",fig.width=8,fig.height=8,out.width='80%'}
+
+p3 <- ggplot(df,aes(steps,posteriors_absolute)) +
+  geom_line(color='blue') +
+  xlab('p(heads)') +
+  ylab('Posterior probability') +
+  ylim(0,max(df$posteriors_absolute)*1.1) +
+  geom_line(aes(steps,
+            priors_absolute*max(df$posteriors_absolute)*20),
+            linetype='dotted',
+            size=1)
+
+plot_grid(p1, p2,p3, labels='AUTO')
+```
+
+W panelu C rysunku widzimy, że istnieje zerowa gęstość w posterior dla każdej z wartości, gdzie priorytety zostały ustawione na zero - dane są przytłoczone przez absolutny prioryt.
+
+## Wybór priorytetu
+
+Wpływ priorytetów na wynikowe wnioskowanie jest najbardziej kontrowersyjnym aspektem statystyki bayesowskiej. Jaki jest właściwy priorytet, którego należy użyć? Jeśli wybór priorytetu determinuje wyniki (tj. posterior), jak można być pewnym, że wyniki są godne zaufania? Są to trudne pytania, ale nie powinniśmy się wycofywać tylko dlatego, że mamy do czynienia z trudnymi pytaniami. Jak już wcześniej mówiliśmy, analizy bayesowskie dają nam interpretowalne wyniki (wiarygodne przedziały itp.). Już samo to powinno nas zainspirować do intensywnego myślenia o tych pytaniach, abyśmy mogli uzyskać wyniki, które są rozsądne i możliwe do zinterpretowania.
+
+Istnieją różne sposoby wyboru priorytetu, które (jak widzieliśmy powyżej) mogą wpływać na wynik wnioskowania. Czasami mamy bardzo konkretne priorytety, jak w przypadku, gdy spodziewamy się, że nasza moneta wyląduje na głowie w 50% przypadków, ale w wielu przypadkach nie mamy tak silnego punktu wyjścia. Priorytety *nieinformacyjne* starają się wpływać na wynikowy posterior w jak najmniejszym stopniu, jak to widzieliśmy w powyższym przykładzie priorytetu jednolitego.  Często stosuje się również *słabo informacyjne priorytety* (lub *domyślne priorytety*), które w bardzo niewielkim stopniu wpływają na wynik. Na przykład, gdybyśmy użyli rozkładu dwumianowego opartego na jednym reszcie z dwóch rzutów monetą, to prior byłby wyśrodkowany wokół 0.5, ale dość płaski i miałby niewielki wpływ na posterior.  Możliwe jest również zastosowanie priorytetów opartych na literaturze naukowej lub istniejących wcześniej danych, które nazywamy *empirycznymi priorytetami*.  Ogólnie jednak będziemy trzymać się stosowania nieinformacyjnych/słabo informatywnych priorytetów, ponieważ budzą one najmniejsze obawy o wpływ na nasze wyniki.  
+
+## Testowanie hipotez metodą bayesowską
+
+Nauczywszy się estymacji bayesowskiej, przechodzimy teraz do wykorzystania metod bayesowskich do testowania hipotez.  Załóżmy, że jest dwóch polityków, którzy różnią się w swoich przekonaniach na temat tego, czy społeczeństwo jest za dodatkowym podatkiem na wsparcie parków narodowych. Senator Smith uważa, że tylko 40% ludzi jest za tym podatkiem, podczas gdy senator Jones uważa, że 60% ludzi jest za.  W celu sprawdzenia tego faktu organizują sondaż, w którym pytają 1000 losowo wybranych osób, czy popierają taki podatek. Wyniki są takie, że 490 osób z badanej próby opowiedziało się za podatkiem. Na podstawie tych danych chcielibyśmy się dowiedzieć: Czy dane wspierają twierdzenia jednego senatora nad drugim,i o ile?  Możemy to sprawdzić używając pojęcia znanego jako współczynnik [Bayes factor] (https://bayesfactor.blogspot.com/2014/02/the-bayesfactor-package-this-blog-is.html), który określa, która hipoteza jest lepsza poprzez porównanie jak dobrze każda z nich przewiduje obserwowane dane.
+
+
+### Współczynniki Bayesa {#Bayes-factors}
+
+
+``{r echo=FALSE}
+# oblicz współczynnik Bayesa dla Smith vs. Jones
+
+bf <-
+  dbinom(
+    x = 490,
+    size = 1000,
+    prob = 0.4 #hipoteza Smitha
+  ) / dbinom(
+    x = 490,
+    size = 1000,
+    prob = 0.6 #hipoteza Jonesa
+  )
+
+```
+
+
+Współczynnik Bayesa charakteryzuje względne prawdopodobieństwo danych przy dwóch różnych hipotezach.  Definiuje się go jako:
+
+$$
+BF = ¨frac{p(dane|H_1)}{p(dane|H_2)}
+$$
+
+dla dwóch hipotez $H_1$ i $H_2$.  W przypadku naszych dwóch senatorów wiemy, jak obliczyć prawdopodobieństwo danych przy każdej hipotezie, korzystając z rozkładu dwumianowego; załóżmy na razie, że nasze priorytety prawdopodobieństwa poprawności każdego senatora są takie same ($P_{H_1} = P_{H_2} = 0,5$).  Umieścimy senatora Smitha w liczniku, a senatora Jonesa w mianowniku, tak aby wartość większa od jeden odzwierciedlała większy dowód na korzyść senatora Smitha, a wartość mniejsza od jeden - większy dowód na korzyść senatora Jonesa. Wynikający z tego współczynnik Bayesa (`r I(bf)`) stanowi miarę dowodów, jakie dane dostarczają w odniesieniu do dwóch hipotez - w tym przypadku mówi nam, że dane wspierają senatora Smitha ponad 3000 razy silniej niż wspierają senatora Jonesa.
+
+### Współczynniki Bayesa dla hipotez statystycznych
+
+W poprzednim przykładzie mieliśmy określone przewidywania każdego senatora, których prawdopodobieństwo mogliśmy określić ilościowo za pomocą rozkładu dwumianowego. Ponadto nasze uprzednie prawdopodobieństwo dla obu hipotez było równe.  Jednak w analizie rzeczywistych danych musimy zazwyczaj radzić sobie z niepewnością co do naszych parametrów, co komplikuje współczynnik Bayesa, ponieważ musimy obliczyć prawdopodobieństwo krańcowe (czyli zintegrowaną średnią prawdopodobieństwa wszystkich możliwych parametrów modelu, ważoną ich prawdopodobieństwem wstępnym).  W zamian jednak zyskujemy możliwość ilościowego określenia względnej ilości dowodów na korzyść hipotez zerowych i alternatywnych.  
+
+Załóżmy, że jesteśmy badaczem medycznym prowadzącym badanie kliniczne dotyczące leczenia cukrzycy i chcemy się dowiedzieć, czy dany lek obniża poziom glukozy we krwi w porównaniu z placebo. Rekrutujemy grupę ochotników i losowo przydzielamy ich do grupy otrzymującej lek lub placebo, a następnie mierzymy zmianę hemoglobiny A1C (marker poziomu glukozy we krwi) w każdej grupie w okresie, w którym podawano lek lub placebo.  To, co chcemy wiedzieć to: Czy istnieje różnica między lekiem a placebo?
+
+Najpierw wygenerujmy trochę danych i przeanalizujmy je przy użyciu testowania hipotez zerowych (patrz rysunek \u0026apos; fig:bayesTesting). Następnie wykonajmy test t z niezależnymi próbkami, z którego wynika, że istnieje istotna różnica między grupami:
+
+
+``{r echo=FALSE}
+# utwórz symulowane dane dla przykładu badania leków
+
+set.seed(1234567)
+nsubs <- 40
+effect_size <- 0.6
+
+# randomizuj jednostki do leku (1) lub placebo (0)
+drugDf <-
+  tibble(
+    group = as.integer(runif(nsubs) > 0.5)
+  ) %>%
+  mutate(
+    hbchange = rnorm(nsubs) - group * effect_size
+  )
+
+```
+
+``{r bayesTesting,echo=FALSE,fig.cap="Box plots showing data for drug and placebo groups.",fig.width=4,fig.height=4,out.height='50%'}
+
+drugDf %>%
+  mutate(
+    group = as.factor(
+      recode(
+        group,
+        "1" = "Lek",
+        "0" = "Placebo"
+      )
+    )
+  ) %>%
+  ggplot(aes(group, hbchange)) +
+  geom_boxplot() +
+  annotate("segment", x = 0.5, xend = 2.5, y = 0, yend = 0, linetype = "dotted") +
+  labs(
+    x = "",
+    y = "Zmiana w hemoglobinie A1C"
+  )
+```
+
+
+``{r echo=FALSE}
+# oblicz test t dla przykładu z lekami
+drugTT <- t.test(hbchange ~ group, alternative = "greater", data = drugDf)
+print(drugTT)
+```
+
+Ten test mówi nam, że istnieje znacząca różnica między grupami, ale nie określa, jak mocno dowody wspierają hipotezy zerowe i alternatywne.  Aby to zmierzyć, możemy obliczyć współczynnik Bayesa, używając funkcji `ttestBF` z pakietu BayesFactor w R:
+
+``{r echo=FALSE, message=FALSE,warning=FALSE}
+# oblicz współczynnik Bayesa dla danych o lekach
+bf_drug <- ttestBF(
+  formula = hbchange ~ group, data = drugDf,
+  nullInterval = c(0, Inf)
+)
+
+bf_drug
+```
+
+Szczególnie interesuje nas współczynnik Bayesa dla efektu większego od zera, który w raporcie jest wyszczególniony w linii oznaczonej "[1]".  Współczynnik Bayesa mówi nam, że hipoteza alternatywna (tj. że różnica jest większa niż zero) jest około 3 razy bardziej prawdopodobna niż punktowa hipoteza zerowa (tj. średnia różnica dokładnie zero) biorąc pod uwagę dane.  Tak więc, chociaż efekt jest znaczący, ilość dowodów, które dostarcza nam na korzyść hipotezy alternatywnej jest raczej słaba.
+
+#### Testy jednostronne
+
+Na ogół mniej interesuje nas testowanie przeciwko hipotezie zerowej o określonej wartości punktowej (np. średnia różnica = 0) niż testowanie przeciwko kierunkowej hipotezie zerowej (np. że różnica jest mniejsza lub równa zeru).  Możemy również wykonać test kierunkowy (lub *jednostronny*) używając wyników analizy `ttestBF`, ponieważ dostarcza ona dwóch współczynników Bayesa: jeden dla hipotezy alternatywnej, że średnia różnica jest większa niż zero, i jeden dla hipotezy alternatywnej, że średnia różnica jest mniejsza niż zero.  Jeśli chcemy ocenić względny dowód na pozytywny efekt, możemy obliczyć współczynnik Bayesa porównujący względny dowód na pozytywny versus negatywny efekt, po prostu dzieląc dwa współczynniki Bayesa zwrócone przez funkcję:
+
+``{r echo=FALSE}
+bf_drug[1]/bf_drug[2]
+```
+
+Teraz widzimy, że współczynnik Bayesa dla efektu pozytywnego w porównaniu z efektem negatywnym jest znacznie większy (prawie 30).  
+
+#### Interpretacja współczynników Bayesa
+Skąd mamy wiedzieć, czy współczynnik Bayesa równy 2 lub 20 jest dobry czy zły? Istnieje ogólna wskazówka dotycząca interpretacji współczynników Bayesa zaproponowana przez [Kass & Rafferty (1995)](https://www.andrew.cmu.edu/user/kk3n/simplicity/KassRaftery1995.pdf):
+
+|BF| Siła dowodów|
+|---------|---------------------|
+|1 do 3 | nie warte więcej niż zwykła wzmianka.
+|3 do 20| pozytywny|
+|20 do 150| silny|
+|150 | bardzo silny|
+
+Na tej podstawie można stwierdzić, że mimo iż wynik statystyczny jest istotny, ilość dowodów na korzyść hipotezy alternatywnej w stosunku do punktowej hipotezy zerowej jest na tyle słaba, że nie warto o niej nawet wspominać, podczas gdy dowody na rzecz hipotezy kierunkowej są stosunkowo silne.
+
+
+### Ocena dowodów na hipotezę zerową
+Ponieważ współczynnik Bayesa porównuje dowody dla dwóch hipotez, pozwala nam również ocenić, czy istnieją dowody na korzyść hipotezy zerowej, czego nie moglibyśmy zrobić przy standardowym testowaniu hipotezy zerowej (ponieważ zaczyna się ono od założenia, że zerowa jest prawdziwa).  Może to być bardzo przydatne do określenia, czy nieistotny wynik rzeczywiście stanowi silny dowód na brak efektu, czy też odzwierciedla jedynie słaby dowód ogólny.
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału, powinieneś umieć:
+
+* Opisać główne różnice między analizą bayesowską a testowaniem hipotez zerowych.
+* Opisać i wykonać kroki w analizie bayesowskiej
+* Opisać efekty różnych priorytetów oraz czynniki wpływające na wybór priorytetu.
+* Opisać różnicę w interpretacji pomiędzy przedziałem ufności a wiarygodnym przedziałem Bayesa
+
+## Sugerowane lektury
+
+- The Theory That Would Not Die: How Bayes' Rule Cracked the Enigma Code, Hunted Down Russian Submarines, and Emerged Triumphant from Two Centuries of Controversy*, Sharon Bertsch McGrayne
+- Analiza danych bayesowskich: A Tutorial Introduction with R*, autor: John K. Kruschke  
+
+## Dodatek:
+
+### Próbkowanie odrzuceń
+
+Będziemy generować próbki z naszego rozkładu potomnego za pomocą prostego algorytmu znanego jako [*rejection sampling*](https://am207.github.io/2017/wiki/rejectionsampling.html).  Idea polega na tym, że wybieramy losową wartość x (w tym przypadku $p_{respond}$) oraz losową wartość y (w tym przypadku prawdopodobieństwo potomne $p_{respond}$) każdą z rozkładu jednostajnego. Następnie akceptujemy próbkę tylko wtedy, gdy $y < f(x)$ - w tym przypadku, gdy losowo wybrana wartość y jest mniejsza od rzeczywistego prawdopodobieństwa potomnego y. Na rysunku \(fig:rejectionSampling) pokazano przykładowy histogram próbek z wykorzystaniem próbkowania z odrzuceniem, wraz z 95% przedziałami wiarygodności uzyskanymi tą metodą (z wartościami przedstawionymi w tabeli \(tab:credInt)).
+
+`{r credInt, echo=FALSE}
+# Oblicz wiarygodne przedziały dla przykładu
+
+nsamples <- 100000
+
+# utwórz losowe jednolite zmienne dla x i y
+x <- runif(nsamples)
+y <- runif(nsamples)
+
+# utwórz f(x)
+fx <- dbinom(x = nResponders, size = 100, prob = x)
+
+# akceptuj próbki, w których y < f(x)
+accept <- which(y < fx)
+accepted_samples <- x[accept]
+
+credible_interval <- quantile(x = accepted_samples,
+                              probs = c(0.025, 0.975))
+kable(credible_interval)
+```
+
+``{r rejectionSampling,echo=FALSE,fig.cap="Przykład próbkowania odrzucenia.Czarna linia pokazuje gęstość wszystkich możliwych wartości p(respond); niebieskie linie pokazują 2,5 i 97,5 percentyla rozkładu, które reprezentują 95-procentowy przedział wiarygodności dla oszacowania p(respond).",fig.width=4,fig.height=4,out.height='50%'}
+
+# plot histogram
+
+p=ggplot(data.frame(samples=accepted_samples),aes(samples)) +
+  geom_density()
+
+for (i in 1:2) {
+  p = p + annotate('segment',x=credible_interval[i],xend=credible_interval[i],
+           y=0,yend=2,col='blue',lwd=1)
+}
+print(p)
+```

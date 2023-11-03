@@ -1,0 +1,479 @@
+---
+wyjście:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+# Podsumowywanie danych
+
+Wspomniałem we Wstępie, że jednym z wielkich odkryć statystyki jest pomysł, że możemy lepiej zrozumieć świat, wyrzucając informacje, i to właśnie robimy, gdy podsumowujemy zbiór danych.
+W tym rozdziale omówimy, dlaczego i jak podsumowywać dane.
+
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(cowplot)
+library(knitr)
+options(digits = 2)
+
+```
+
+## Po co podsumowywać dane?
+
+Kiedy podsumowujemy dane, z konieczności wyrzucamy informacje i ktoś mógłby się temu sprzeciwić.  Jako przykład wróćmy do badania PURE, które omawialiśmy w rozdziale 1.  Czy nie mamy uwierzyć, że wszystkie szczegóły dotyczące każdej osoby mają znaczenie, poza tymi, które są podsumowane w zbiorze danych?  Co z konkretnymi szczegółami dotyczącymi sposobu zbierania danych, takimi jak pora dnia czy nastrój uczestnika?  Wszystkie te szczegóły są tracone, gdy podsumowujemy dane.
+
+Jednym z powodów, dla których podsumowujemy dane, jest to, że dzięki temu możemy *uogólniać* - czyli formułować ogólne stwierdzenia, które wykraczają poza konkretne obserwacje.  Znaczenie generalizacji zostało podkreślone przez pisarza Jorge Luisa Borgesa w jego opowiadaniu "Funes the Memorious", które opisuje osobę, która traci zdolność zapominania.  Borges skupia się w nim na relacji między generalizacją (czyli wyrzucaniem danych) a myśleniem: "Myśleć to zapominać o różnicy, generalizować, abstrahować. W nadmiernie wypełnionym świecie Funesa nie było nic poza szczegółami."  
+
+Psychologowie od dawna badali wszystkie sposoby, w jakie generalizacja jest centralnym elementem myślenia.  Jednym z przykładów jest kategoryzacja: Jesteśmy w stanie z łatwością rozpoznać różne przykłady kategorii "ptaki", nawet jeśli poszczególne przykłady mogą się bardzo różnić w swoich cechach powierzchniowych (jak struś, robin i kurczak).  Co ważne, uogólnianie pozwala nam przewidywać na temat tych osobników - w przypadku ptaków możemy przewidzieć, że potrafią latać i jeść nasiona, a także, że prawdopodobnie nie potrafią prowadzić samochodu ani mówić po angielsku.  Te przewidywania nie zawsze będą słuszne, ale często są wystarczająco dobre, by być użyteczne w świecie.
+
+## Podsumowywanie danych za pomocą tabel
+
+Prostym sposobem na podsumowanie danych jest wygenerowanie tabeli reprezentującej zliczenia różnego rodzaju obserwacji.  Tego typu tablica jest używana od tysięcy lat (patrz rysunek \u0026apos; fig:salesContract).
+
+``{r salesContract,echo=FALSE,fig.cap="Sumeryjska tabliczka z Luwru, przedstawiająca umowę sprzedaży domu i pola.  Public domain, via Wikimedia Commons.",fig.width=4,fig.height=4,out.height='30%'}
+knitr::include_graphics("images/Sales_contract_Shuruppak_Louvre_AO3760.jpg")
+
+```
+
+
+``{r LoadNHANES, echo=FALSE}
+# załaduj bibliotekę danych NHANES
+library(NHANES)
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES <-
+  NHANES %>%
+  distinct(ID, .keep_all = TRUE)
+
+# otwórz stronę pomocy dla zbioru danych
+# help(NHANES)
+```
+
+Przyjrzyjmy się kilku przykładom użycia tablic, wykorzystując bardziej realistyczny zbiór danych.  W całej tej książce będziemy używać zestawu danych [National Health and Nutrition Examination Survey (NHANES)](https://www.cdc.gov/nchs/nhanes/index.htm).  Jest to trwające badanie, które ocenia stan zdrowia i odżywiania próbki osób ze Stanów Zjednoczonych pod kątem wielu różnych zmiennych.  Wykorzystamy wersję zbioru danych, która jest dostępna dla pakietu oprogramowania statystycznego R.   W tym przykładzie przyjrzymy się prostej zmiennej, nazwanej w zbiorze danych *PhysActive*.  Zmienna ta zawiera jedną z trzech różnych wartości: "Tak" lub "Nie" (wskazując, czy dana osoba zgłasza uprawianie "sportu o umiarkowanej lub energicznej intensywności, fitnessu lub zajęć rekreacyjnych"), lub "NA", jeśli brakuje danych dla tej osoby. Istnieją różne powody, dla których może brakować danych; na przykład, pytanie to nie zostało zadane dzieciom poniżej 12 roku życia, podczas gdy w innych przypadkach osoba dorosła mogła odmówić odpowiedzi na to pytanie podczas wywiadu lub zapis odpowiedzi przez ankietera na jego formularzu mógł być nieczytelny.
+
+### Rozkłady częstości {#frequency-distributions}
+
+A *distribution* describes how data are divided between different possible values. Dla tego przykładu przyjrzyjmy się, ile osób zalicza się do każdej z kategorii aktywności fizycznej.
+
+``{r MakePhysActiveTable, echo=FALSE, warning=FALSE}
+# podsumuj dane dotyczące aktywności fizycznej
+
+PhysActive_table <- NHANES %>%
+  dplyr::select(PhysActive) %>% # wybierz zmienną
+  group_by(PhysActive) %>% # grupuj według wartości zmiennej
+  summarize(AbsoluteFrequency = n()) # zlicz wartości
+
+```
+
+``{r PhysActiveTable, echo=FALSE}
+
+kable(PhysActive_table, digits=3, caption='Frequency distribution for PhysActive variable')
+```
+
+Tabela ̨ PhysActiveTable) pokazuje częstości poszczególnych wartości; było ich `r I(PhysActive_table %>% subset(PhysActive=='No') %>% dplyr:: select(AbsoluteFrequency))` osobników, którzy odpowiedzieli "Nie" na pytanie, `r I(PhysActive_table %>% subset(PhysActive=='Yes') %>% dplyr::select(AbsoluteFrequency))` którzy odpowiedzieli "Tak", oraz `r I(PhysActive_table %>% subset(is. na(PhysActive)) %>% dplyr::select(AbsoluteFrequency))` dla których nie udzielono odpowiedzi.  Nazywamy to *rozkładem częstotliwości*, ponieważ mówi nam, jak często każda z możliwych wartości występuje w naszej próbie.
+
+To pokazuje nam absolutną częstotliwość dwóch odpowiedzi, dla każdego, kto faktycznie udzielił odpowiedzi. Możemy zauważyć, że więcej osób mówi "Tak" niż "Nie", ale trudno jest określić na podstawie liczb bezwzględnych, jak duża jest ta różnica w kategoriach względnych.  Z tego powodu często wolimy przedstawiać dane za pomocą *częstotliwości względnej*, którą uzyskujemy dzieląc każdą częstotliwość przez sumę wszystkich częstotliwości:
+
+$$
+częstotliwość względna_i = \frac{absolutna częstotliwość_i}{suma_{j=1}^N absolutna częstotliwość_j}.
+$$
+Częstotliwość względna zapewnia znacznie łatwiejszy sposób zobaczenia, jak duża jest nierównowaga.  Możemy również interpretować częstotliwości względne jako procenty, mnożąc je przez 100. W tym przykładzie porzucimy również wartości NA, ponieważ chcielibyśmy móc interpretować względne częstości osób aktywnych versus nieaktywnych.  Jednak aby miało to sens, musimy założyć, że wartości NA są brakujące "losowo", co oznacza, że ich obecność lub brak nie jest związana z prawdziwą wartością zmiennej dla tej osoby.  Na przykład, jeśli nieaktywni uczestnicy częściej odmawiali odpowiedzi na pytanie niż aktywni uczestnicy, wtedy to *bias* naszego oszacowania częstotliwości aktywności fizycznej, co oznacza, że nasze oszacowanie byłoby różne od prawdziwej wartości.
+
+``{r echo=FALSE}
+# obliczyć procenty dla kategorii aktywności fizycznej
+
+PhysActive_table_filtered <- NHANES %>%
+  drop_na(PhysActive) %>%
+  dplyr::select(PhysActive) %>%
+  group_by(PhysActive) %>%
+  summarize(AbsoluteFrequency = n()) %>%
+  mutate(
+    RelativeFrequency = AbsoluteFrequency / sum(AbsoluteFrequency),
+    Percentage = RelativeFrequency * 100
+  )
+
+```
+
+``{r PhysActiveTableFiltered, echo=FALSE}
+kable(PhysActive_table_filtered, caption='Absolute and relative frequencies and percentages for PhysActive variable')
+
+```
+
+Tabela \u0026.pl pozwala nam zobaczyć, że `r formatC(I(PhysActive_table_filtered %>% subset(PhysActive=='No') %>% dplyr:: select(Percentage) %>% pull()), digits=1, format='f')` procent osób w próbie NHANES powiedział "Nie" i `r formatC(I(PhysActive_table_filtered %>% subset(PhysActive=='Yes') %>% dplyr::select(Percentage) %>% pull()), digits=1, format='f')` procent powiedział "Tak".
+
+### Rozkłady skumulowane {#cumulative-distributions}
+
+Zmienna *PhysActive*, którą badaliśmy powyżej, miała tylko dwie możliwe wartości, ale często chcemy podsumować dane, które mogą mieć znacznie więcej możliwych wartości. Jeśli wartości te są ilościowe, to jednym z użytecznych sposobów ich podsumowania jest coś, co nazywamy *skumulowanym* rozkładem częstości: zamiast pytać, ile obserwacji przyjmuje określoną wartość, pytamy, ile ma wartość pewną określoną wartość *lub mniej*.  
+
+Spójrzmy na inną zmienną w zbiorze danych NHANES, zwaną *SleepHrsNight*, która rejestruje, ile godzin uczestnik zgłasza, że śpi w zwykłe dni tygodnia.  Tabela pokazuje tabelę częstości stworzoną tak jak zrobiliśmy to powyżej, po usunięciu wszystkich osób z brakującymi danymi dla tego pytania. Możemy już zacząć podsumowywać zbiór danych po prostu patrząc na tabelę; na przykład, możemy zobaczyć, że większość ludzi zgłasza spanie pomiędzy 6 a 8 godzin.  Aby zobaczyć to jeszcze wyraźniej, możemy wykreślić *histogram*, który pokazuje liczbę przypadków mających każdą z różnych wartości; patrz lewy panel ryciny \@ref(fig:sleepHist). Możemy również wykreślić względne częstotliwości, które często będziemy określać jako *density* - patrz prawy panel na rysunku \u0026apos;.
+
+
+
+``{r echo=FALSE}
+# create summary table for relative frequency of different
+# wartości SleepHrsNight
+
+sleepTable <- NHANES %>%
+  drop_na(SleepHrsNight) %>%
+  dplyr::select(SleepHrsNight) %>%
+  group_by(SleepHrsNight) %>%
+  summarize(AbsoluteFrequency = n()) %>%
+  mutate(
+    RelativeFrequency = AbsoluteFrequency / sum(AbsoluteFrequency),
+    Procent = RelativeFrequency * 100
+  )
+
+```
+
+``{r sleepTable, echo=FALSE}
+kable(sleepTable, caption='Frequency distribution for number of hours of sleep per night in the NHANES dataset')
+```
+
+
+
+``{r sleepHist,echo=FALSE,fig.cap="Left: Histogram pokazujący liczbę (po lewej) i odsetek (po prawej) osób zgłaszających każdą możliwą wartość zmiennej SleepHrsNight.",fig.width=8,fig.height=4,out.height='33%'}
+
+SleepHrsNight_data_filtered <-.
+  NHANES %>%
+  drop_na(SleepHrsNight) %>%
+  dplyr::select(SleepHrsNight)
+
+# ustaw przerwy dla zmiennej sen
+scalex <-
+  scale_x_continuous(
+    breaks = c(
+      min(NHANES$SleepHrsNight, na.rm = TRUE):max(NHANES$SleepHrsNight, na.rm = TRUE)
+    )
+  ) # ustaw punkty przerw w wykresie
+
+p1 <- SleepHrsNight_data_filtered %>%
+  ggplot(aes(SleepHrsNight)) +
+  geom_histogram(binwidth = 1) +
+  scalex
+
+p2 <- SleepHrsNight_data_filtered %>%
+  ggplot(aes(SleepHrsNight)) +
+  geom_histogram(aes(y = ..density...), binwidth = 1) +
+  scalex
+
+plot_grid(p1,p2)
+```
+
+
+Co jeśli chcemy wiedzieć ile osób zgłasza, że śpi 5 godzin lub mniej?  Aby to ustalić, możemy obliczyć *rozkład skumulowany*.  Aby obliczyć skumulowaną częstotliwość dla jakiejś wartości j, sumujemy częstotliwości dla wszystkich wartości do j i włącznie:
+
+$$
+częstotliwość skumulowana_j = ∑suma_{i=1}^{j}{absolutna częstotliwość_i}
+$$
+
+``{r echo=FALSE}
+# utwórz skumulowany rozkład częstotliwości dla danych SleepHrsNight
+
+SleepHrsNight_cumulative <-
+  NHANES %>%
+  drop_na(SleepHrsNight) %>%
+  dplyr::select(SleepHrsNight) %>%
+  group_by(SleepHrsNight) %>%
+  summarize(AbsoluteFrequency = n()) %>%
+  mutate(CumulativeFrequency = cumsum(AbsoluteFrequency))
+
+```
+\nowa strona
+``{r echo=FALSE}
+kable(SleepHrsNight_cumulative, caption='Absolute and cumulative frequency distributions for SleepHrsNight variable')
+
+```
+
+Zróbmy to dla naszej zmiennej sen, obliczając częstość bezwzględną i skumulowaną. W lewym panelu rysunku (fig:sleepAbsCumulRelFreq) wykreślamy dane, aby zobaczyć jak wyglądają te reprezentacje; wartości częstotliwości bezwzględnej są wykreślone liniami ciągłymi, a częstotliwości skumulowanej liniami przerywanymi Widzimy, że częstotliwość skumulowana jest *monotonicznie rosnąca* -- to znaczy, że może tylko rosnąć lub pozostawać stała, ale nigdy nie może maleć.  Ponownie, zwykle uważamy, że częstotliwości względne są bardziej użyteczne niż bezwzględne; są one wykreślone w prawym panelu ryciny \@ref(fig:sleepAbsCumulRelFreq).  Co ważne, kształt wykresu częstotliwości względnych jest dokładnie taki sam jak wykres częstotliwości bezwzględnych -- zmieniła się tylko wielkość wartości.
+
+``{r sleepAbsCumulRelFreq,echo=FALSE,fig.cap="Wykres względnych (solidnych) i skumulowanych względnych (przerywanych) wartości częstotliwości (po lewej) i proporcji (po prawej) dla możliwych wartości SleepHrsNight.",fig.width=8,fig.height=4,out.height='33%'}
+
+p1 <- SleepHrsNight_cumulative %>%.
+  ggplot(aes(SleepHrsNight, AbsoluteFrequency)) +
+  geom_line(size = 1.25) +
+  geom_line(
+    aes(SleepHrsNight, CumulativeFrequency),
+    linetype = "dashed",
+    size = 1.25
+  ) +
+  scalex +
+  labs(y = "Częstotliwość")
+
+SleepHrsNight_cumulative <-
+  NHANES %>%
+  drop_na(SleepHrsNight) %>%
+  dplyr::select(SleepHrsNight) %>%
+  group_by(SleepHrsNight) %>%
+  summarize(AbsoluteFrequency = n()) %>%
+  mutate(
+    RelativeFrequency = AbsoluteFrequency / sum(AbsoluteFrequency),
+    CumulativeDensity = cumsum(RelativeFrequency)
+  )
+
+p2 <- SleepHrsNight_cumulative %>%
+  ggplot(aes(SleepHrsNight, RelativeFrequency)) +
+  geom_line( size = 1.25) +
+  geom_line(
+    aes(SleepHrsNight, CumulativeDensity),
+    linetype = "dashed",
+    size = 1.25) +
+  scalex +
+  labs(
+    y = "Proporcja"
+  )
+
+plot_grid(p1,p2)
+```
+
+
+### Plotting histograms {#plotting-histograms}
+
+``{r ageHist,echo=FALSE,fig.cap="A histogram of the Age (left) and Height (right) variables in NHANES.",fig.width=8,fig.height=4,out.height='33%'}
+
+p1 <- NHANES %>%.
+  ggplot(aes(Age)) +
+  geom_histogram(binwidth = 1) +
+  ggtitle('Wiek')
+
+p2 <- NHANES %>%
+  select(Height) %>%
+  drop_na() %>%
+  ggplot(aes(Height)) +
+  geom_histogram(aes(y = ..density...), binwidth = 1) +
+  ggtitle('Wysokość')
+
+plot_grid(p1,p2)
+
+```
+
+Zmienne, które badaliśmy powyżej były dość proste, miały tylko kilka możliwych wartości. Teraz przyjrzyjmy się bardziej złożonej zmiennej: Wiek.  Najpierw wykreślmy zmienną *Age* dla wszystkich osób w zbiorze danych NHANES (patrz lewy panel rysunku). Co tam widać?  Po pierwsze, należy zauważyć, że liczba osób w każdej grupie wiekowej maleje w czasie.  Ma to sens, ponieważ populacja jest losowo próbkowana, a zatem śmierć z czasem prowadzi do zmniejszenia liczby osób w starszych przedziałach wiekowych.  Po drugie, prawdopodobnie zauważyłeś duży skok na wykresie w wieku 80 lat.  Jak myślisz, o co chodzi?  
+
+Gdybyśmy zajrzeli do informacji o zbiorze danych NHANES, zobaczylibyśmy następującą definicję dla zmiennej *Age*: "Wiek w latach w momencie badania przesiewowego uczestnika badania. Uwaga: Osoby w wieku 80 lat lub starsze były zapisywane jako 80." Powodem tego jest to, że stosunkowo niewielka liczba osób z bardzo wysokim wiekiem sprawiłaby, że potencjalnie łatwiej byłoby zidentyfikować konkretną osobę w zbiorze danych, gdybyś znał jej dokładny wiek; badacze zazwyczaj obiecują swoim uczestnikom zachowanie poufności ich tożsamości i jest to jedna z rzeczy, które mogą zrobić, aby pomóc chronić swoich uczestników badań.  To również podkreśla fakt, że zawsze ważne jest, aby wiedzieć, skąd pochodzą nasze dane i jak zostały przetworzone; w przeciwnym razie moglibyśmy je niewłaściwie zinterpretować, myśląc, że 80-latkowie byli w jakiś sposób nadreprezentowani w próbie.
+
+Przyjrzyjmy się innej, bardziej złożonej zmiennej w zbiorze danych NHANES: Wzrost. Histogram wartości wzrostu jest wykreślony w prawym panelu Ryciny. Pierwszą rzeczą, którą powinieneś zauważyć w tym rozkładzie, jest to, że większość jego gęstości jest skupiona wokół około 170 cm, ale rozkład ma "ogon" po lewej stronie; istnieje niewielka liczba osób o znacznie mniejszym wzroście. Jak myślisz, co się tutaj dzieje?
+
+Być może domyślasz się, że te małe wysokości pochodzą od dzieci w zbiorze danych.  Jednym ze sposobów sprawdzenia tego jest wykreślenie histogramu z oddzielnymi kolorami dla dzieci i dorosłych (lewy panel rysunku). To pokazuje, że wszystkie bardzo krótkie wysokości rzeczywiście pochodziły od dzieci w próbie. Utwórzmy nową wersję NHANES, która obejmuje tylko dorosłych, a następnie wykreślmy histogram tylko dla nich (prawy panel ryciny \(fig:heightHistSep)).  W tym wykresie rozkład wygląda znacznie bardziej symetrycznie.  Jak zobaczymy później, jest to dobry przykład rozkładu *normalnego* (lub *Gaussowskiego*).  
+
+``{r heightHistSep,echo=FALSE,fig.cap="Histogram wysokości dla NHANES. A: wartości wykreślone oddzielnie dla dzieci (szary) i dorosłych (czarny).  B: wartości tylko dla dorosłych. C: To samo co B, ale z bin width = 0.1",fig.width=8,fig.height=8,out.height='50%'}
+
+# najpierw utwórz nową zmienną w NHANES, która powie nam, czy
+# each individual is a child
+NHANES <-
+  NHANES %>%
+  mutate(isChild = Age < 18)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Wiek, Wysokość) %>%
+  dplyr::filter(Age > 17)
+
+
+p1 <- NHANES %>%
+  dplyr::select(Height, isChild) %>%
+  drop_na() %>%
+  ggplot(aes(Height, fill = isChild)) +
+  scale_fill_grey() +
+  geom_histogram(aes(y = ..density...), binwidth = 1) +
+  theme(legend.position = c(0,0.8)) +
+  ggtitle('A: Wszystkie osoby')
+
+p2 <- NHANES_adult %>%
+  ggplot(aes(Wysokość)) +
+  geom_histogram(aes(y = ..density...), binwidth = 1) +
+  ggtitle('B: Tylko dorośli')
+
+
+p3 <- NHANES_adult %>%
+  drop_na(Wysokość) %>%
+  ggplot(aes(Height)) +
+  geom_histogram(aes(y = ..density...), binwidth = .1) +
+  ggtitle('C: Tylko dorośli (bin width=.1)')
+
+plot_grid(p1,p2,p3,ncol=2)
+
+```
+
+### Biny histogramu
+
+W naszym wcześniejszym przykładzie ze zmienną sen, dane były podawane w liczbach całkowitych i po prostu policzyliśmy liczbę osób, które podały każdą możliwą wartość. Jeśli jednak spojrzymy na kilka wartości zmiennej Height w NHANES (jak pokazano w Tabeli \u0026apos; tab:heightVals), zobaczymy, że była ona mierzona w centymetrach do pierwszego miejsca po przecinku.
+
+`{r heightVals, echo=FALSE}
+# weź wycinek kilku wartości z pełnej ramki danych
+nhanes_slice <- NHANES_adult %>%
+  dplyr::select(Height) %>%
+  slice(45:50)
+
+kable(nhanes_slice %>% mutate(Height=formatC(Height, digits=1, format='f')), caption='Kilka wartości Height z ramki danych NHANES.', digits=1)
+```
+
+Panel C rysunku pokazuje histogram, który liczy gęstość każdej możliwej wartości do pierwszego miejsca po przecinku. Ten histogram wygląda naprawdę poszarpany, co jest spowodowane zmiennością w konkretnych wartościach miejsc dziesiętnych.  Na przykład wartość 173.2 występuje `r I(sum(NHANES_adult$Height==173.2,na.rm=TRUE))` razy, podczas gdy wartość 173.3 występuje tylko `r I(sum(NHANES_adult$Height==173.3,na.rm=TRUE))` razy. Prawdopodobnie nie sądzimy, że rzeczywiście istnieje tak duża różnica między częstością występowania tych dwóch wysokości; bardziej prawdopodobne jest, że wynika to po prostu z losowej zmienności w naszej próbce osób.  
+
+Ogólnie rzecz biorąc, gdy tworzymy histogram danych, które są ciągłe lub w których istnieje wiele możliwych wartości, będziemy *bić* wartości tak, że zamiast liczyć i wykreślać częstość każdej konkretnej wartości, będziemy liczyć i wykreślać częstość wartości mieszczących się w określonych przedziałach.  Dlatego w panelu B w fig:heightHistSep wykres wyglądał na mniej poszarpany; w tym panelu ustawiliśmy szerokość binów na 1, co oznacza, że histogram jest obliczany przez łączenie wartości w ramach binów o szerokości jednego; tak więc wartości 1.3, 1.5 i 1.6 byłyby liczone do częstotliwości tego samego binów, które obejmowałyby wartości równe jeden do wartości mniejszych niż 2.  
+
+Zauważ, że po wybraniu rozmiaru binów, ich liczba jest określona przez dane:
+
+$$
+number, of, bins = \frac{range, of, scores}{bin, width}
+$$
+
+Nie ma twardej i szybkiej reguły, jak wybrać optymalną szerokość binów.  Czasami będzie to oczywiste (jak wtedy, gdy istnieje tylko kilka możliwych wartości), ale w wielu przypadkach wymagałoby to próby i błędu.  Istnieją metody, które próbują znaleźć optymalny rozmiar kosza automatycznie, takie jak metoda Freedmana-Diaconisa, którą wykorzystamy w niektórych późniejszych przykładach.
+
+## Wyidealizowane reprezentacje rozkładów
+
+Zbiory danych są jak płatki śniegu, każdy z nich jest inny, ale mimo to istnieją wzorce, które często można zobaczyć w różnych typach danych.  To pozwala nam użyć wyidealizowanych reprezentacji danych do ich dalszego podsumowania.  Weźmy dane o wzroście osób dorosłych przedstawione na rysunku \ref(fig:heightHistSep), i wykreślmy je obok zupełnie innej zmiennej: pulsu (uderzeń serca na minutę), również mierzonego w NHANES (patrz rysunek \ref(fig:NormalDistPlotsWithDist)).
+
+``{r NormalDistPlotsWithDist, echo=FALSE,fig.cap='Histogramy dla wzrostu (po lewej) i pulsu (po prawej) w zestawie danych NHANES, z nałożonym rozkładem normalnym dla każdego zestawu danych.',fig.width=8,fig.height=4,out.height='50%'}
+# najpierw zaktualizuj podsumowanie, aby zawierało średnią i odchylenie standardowe każdego
+# dataset
+
+pulse_summary <-
+  NHANES_adult %>%
+  drop_na(Pulse) %>%
+  summarize(
+    nbins = nclass.FD(Pulse),
+    maxPulse = max(Pulse),
+    minPulse = min(Pulse),
+    meanPulse = mean(Pulse), #obliczanie średniej
+    sdPulse = sd(Pulse), #obliczanie SD
+  )
+
+height_summary <-
+  NHANES_adult %>%
+  drop_na(Height) %>%
+  summarize(
+    nbins = nclass.FD(Height),
+    maxHeight = max(Height),
+    minHeight = min(Height),
+    binwidth = (maxHeight - minHeight) / nbins,
+    meanHeight = mean(Height), #obliczanie średniej
+    sdHeight = sd(Height), #obliczanie SD
+  )
+
+# utwórz dane do wykreślania krzywych rozkładu normalnego na podstawie naszych obliczonych średnich i SD
+heightDist <-
+  tibble(
+    x = seq(height_summary$minHeight, height_summary$maxHeight, 0.1)
+  ) %>%
+  mutate(
+    y = dnorm(
+      x,
+      mean = height_summary$meanHeight,
+      sd = height_summary$sdHeight
+    )
+  )
+
+pulseDist <-
+  tibble(
+    x = seq(pulse_summary$minPulse, pulse_summary$maxPulse, 0.1)
+  ) %>%
+  mutate(
+    y = dnorm(
+      x,
+      mean = pulse_summary$meanPulse,
+      sd = pulse_summary$sdPulse)
+  )
+
+#wykreśl krzywe rozkładu normalnego na wierzchu histogramów danych
+h1 <-
+  NHANES_adult %>%
+  drop_na(Height) %>%
+  ggplot(aes(Height)) +
+  geom_histogram(
+    aes(y = ..density...),
+    binwidth = height_summary$binwidth
+  ) +
+  geom_line(
+    data = heightDist,
+    aes(x = x, y = y),
+    color = "blue",
+    size = 1.2
+  )
+
+h2 <-
+  NHANES_adult %>%
+  drop_na(Pulse) %>%
+  ggplot(aes(Pulse)) +
+  geom_histogram(
+    aes(y = ..density...),
+    binwidth = 2
+  ) +
+  geom_line(
+    data = pulseDist,
+    aes(x = x, y = y),
+    color = "blue",
+    size = 1.2
+  )
+
+plot_grid(h1, h2)
+
+```
+
+Chociaż te wykresy z pewnością nie wyglądają dokładnie tak samo, oba mają ogólną cechę bycia względnie symetrycznymi wokół zaokrąglonego szczytu w środku.  Kształt ten jest w rzeczywistości jednym z powszechnie obserwowanych kształtów rozkładów podczas zbierania danych, który nazywamy rozkładem *normalnym* (lub *Gaussowskim*).  Rozkład ten definiuje się za pomocą dwóch wartości (które nazywamy *parametrami* rozkładu): położenia środkowego szczytu (które nazywamy *średnią*) oraz szerokości rozkładu (która jest opisana za pomocą parametru zwanego *odchyleniem standardowym*). Rysunek pokazuje odpowiedni rozkład normalny naniesiony na każdy z histrogramów. Można zauważyć, że chociaż krzywe nie pasują dokładnie do danych, to całkiem nieźle charakteryzują rozkład - za pomocą zaledwie dwóch liczb!
+
+Jak zobaczymy później, gdy będziemy omawiać centralne twierdzenie graniczne, istnieje głęboki matematyczny powód, dla którego wiele zmiennych na świecie ma postać rozkładu normalnego.
+
+### Skośność
+
+Przykłady na rysunku fig:NormalDistPlotsWithDist) dość dobrze podążały za rozkładem normalnym, ale w wielu przypadkach dane będą systematycznie odbiegać od rozkładu normalnego. Jednym ze sposobów, w jaki dane mogą odbiegać od rozkładu normalnego, jest sytuacja, w której są one asymetryczne, czyli jeden ogon rozkładu jest bardziej gęsty niż drugi. Określamy to mianem "skośności".  Skośność często występuje, gdy pomiar jest ograniczony do bycia nieujemnym, np. gdy liczymy rzeczy lub mierzymy czas, który upłynął (a więc zmienna nie może przyjmować wartości ujemnych).  
+
+Przykładem stosunkowo łagodnej skośności może być średni czas oczekiwania na linii bezpieczeństwa na lotnisku w San Francisco, przedstawiony w lewym panelu rysunku \@ref(fig:SFOWaitTimes). Widać, że choć większość czasów oczekiwania jest krótsza niż 20 minut, to w kilku przypadkach są one znacznie dłuższe, ponad 60 minut!  Jest to przykład rozkładu "prawoskośnego", gdzie prawy ogon jest dłuższy niż lewy; są one powszechne, gdy patrzy się na zliczenia lub zmierzone czasy, które nie mogą być mniejsze niż zero.  Rzadziej widuje się rozkłady "lewoskośne", ale mogą one wystąpić, na przykład przy rozpatrywaniu wartości ułamkowych, które nie mogą przyjmować wartości większej niż jeden.
+
+``{r SFOWaitTimes,echo=FALSE,fig.cap="Przykłady rozkładów prawoskośnych i długoogonowych.  Po lewej: Średni czas oczekiwania na ochronę w Terminalu A SFO (styczeń-październik 2017), uzyskany z https://awt.cbp.gov/ .  Po prawej: Histogram liczby znajomych na Facebooku wśród 3 663 osób, uzyskany z Stanford Large Network Database. Osoba z maksymalną liczbą znajomych jest oznaczona diamentem.",fig.width=8,fig.height=4,out.height='50%', message=FALSE,warning=FALSE}
+
+waittimes <-
+  read_csv("data/04/sfo_wait_times_2017.csv")
+
+p1 <- waittimes %>%
+  ggplot(aes(waittime)) +
+  geom_histogram(binwidth = 1)
+
+fbdata <-
+  read.table("data/04/facebook_combined.txt")
+
+# policz ilu przyjaciół ma każda osoba
+friends_table <-
+  fbdata %>%
+  group_by(V1) %>%
+  summarize(nfriends = n())
+
+p2 <- friends_table %>%
+  ggplot(aes(nfriends)) +
+  geom_histogram(aes(y = ..density...), binwidth = 2) +
+  xlab("Liczba przyjaciół") +
+  annotate(
+    "point",
+    x = max(przyjaciele_tablicy$nfriends),
+    y = 0, shape=18,
+    size = 4
+  )
+plot_grid(p1,p2)
+```
+
+
+
+### Rozkłady z długim ogonem
+
+Historycznie, statystyka skupiała się na danych, które są normalnie rozłożone, ale istnieje wiele typów danych, które nie wyglądają jak rozkład normalny. W szczególności, wiele rozkładów w świecie rzeczywistym ma "długi ogon", co oznacza, że prawy ogon rozciąga się daleko poza najbardziej typowe człony rozkładu; to znaczy, że są one bardzo skośne.  Jednym z najbardziej interesujących typów danych, w których występują rozkłady długoogonowe, jest analiza sieci społecznych.  Dla przykładu, spójrzmy na dane o znajomych z Facebooka z [Stanford Large Network Database](https://snap.stanford.edu/data/egonets-Facebook.html) i wykreślmy histogram liczby znajomych wśród 3 663 osób w bazie (patrz prawy panel rysunku \@ref(fig:SFOWaitTimes)). Jak widać, rozkład ten ma bardzo długi prawy ogon -- przeciętna osoba ma `r I(mean(friends_table$nfriends))` przyjaciół, podczas gdy osoba z największą liczbą przyjaciół (oznaczona niebieską kropką) ma `r I(max(friends_table$nfriends))`!  
+
+Rozkłady z długim ogonem są coraz częściej rozpoznawane w świecie rzeczywistym.  W szczególności wiele cech złożonych systemów charakteryzuje się takimi rozkładami, od częstości występowania słów w tekście, przez liczbę lotów do i z różnych lotnisk, po łączność sieci mózgowych.  Istnieje wiele różnych sposobów, w jaki mogą powstawać rozkłady długoogonowe, ale powszechny występuje w przypadkach tzw. "efektu Mateusza" z Biblii chrześcijańskiej:
+
+> Bo każdemu, kto ma, będzie dane więcej i będzie miał obfitość; ale od tego, kto nie ma, nawet to, co ma, będzie zabrane. - Mateusz 25:29, Revised Standard Version
+
+Często parafrazuje się to jako "bogaci stają się bogatsi".  W takich sytuacjach korzyści się potęgują, na przykład ci, którzy mają więcej przyjaciół, mają dostęp do jeszcze większej liczby nowych przyjaciół, a ci, którzy mają więcej pieniędzy, mają możliwość robienia rzeczy, które jeszcze bardziej zwiększają ich bogactwo.  
+
+W trakcie kursu zobaczymy kilka przykładów rozkładów z długim ogonem i powinniśmy pamiętać, że wiele narzędzi w statystyce może zawieść w obliczu danych z długim ogonem.  Jak zauważył Nassim Nicholas Taleb w swojej książce "Czarny łabędź", takie rozkłady długoogonowe odegrały kluczową rolę w kryzysie finansowym w 2008 roku, ponieważ wiele modeli finansowych używanych przez traderów zakładało, że systemy finansowe będą podążać za rozkładem normalnym, co w oczywisty sposób nie miało miejsca.
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Obliczyć bezwzględne, względne i skumulowane rozkłady częstości dla danego zbioru danych.
+* Wygenerować graficzną reprezentację rozkładu częstotliwości
+* Opisać różnicę między rozkładem normalnym a rozkładem z długim ogonem oraz opisać sytuacje, które często powodują powstanie każdego z nich.
+
+## Sugerowane lektury
+
+- Czarny Łabędź: Wpływ Wysoce Nieprawdopodobnego*, autor Nassim Nicholas Taleb

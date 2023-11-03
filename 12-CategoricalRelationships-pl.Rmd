@@ -1,0 +1,402 @@
+---
+output:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+# Modeling categorical relationships {#modeling-categorical-relationships}
+
+So far we have discussed the general concepts of statistical modeling and hypothesis testing, and applied them to some simple analyses; now we will turn to the question of how to model particular kinds of relationships in our data. In this chapter we will focus on the modeling of *categorical* relationships, by which we mean relationships between variables that are measured qualitatively.  These data are usually expressed in terms of counts; that is, for each value of the variable (or combination of values of multiple variables), how many observations take that value?  For example, when we count how many people from each major are in our class, we are fitting a categorical model to the data.
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(kableExtra)
+library(BayesFactor)
+library(sfsmisc)
+library(cowplot)
+
+library(knitr)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Weight) %>%
+  subset(Age>=18)
+
+```
+
+## Przykład: Cukierkowe kolory
+
+``{r echo=FALSE}
+candyDf <-
+  tibble(
+    `Candy Type` = c("chocolate", "licorice", "gumball"),
+    count = c(30, 33, 37)
+  )
+# kable(candyDf, caption='Counts of different candies in our bag.')
+```
+
+Powiedzmy, że kupiłem torbę 100 cukierków, które są oznaczone jako posiadające 1/3 czekoladek, 1/3 lukrecji i 1/3 gumowych piłeczek.  Gdy policzę cukierki w torbie, otrzymamy następujące liczby: 30 czekoladek, 33 lukrecji i 37 gumowych piłeczek. Ponieważ o wiele bardziej lubię czekoladę niż lukrecje czy gumowe kulki, czuję się lekko zrugany i chciałbym wiedzieć, czy był to tylko przypadek losowy.  Aby odpowiedzieć na to pytanie, muszę wiedzieć: Jakie jest prawdopodobieństwo, że liczenie wyszłoby w ten sposób, jeśli prawdziwe prawdopodobieństwo każdego rodzaju cukierków jest uśrednioną proporcją 1/3 każdego z nich?
+
+## Test chi-squared Pearsona {#chi-squared-test}
+
+Test chi-squared Pearsona dostarcza nam sposobu na sprawdzenie, czy zbiór obserwowanych zliczeń różni się od pewnych określonych wartości oczekiwanych, które definiują hipotezę zerową:
+
+$$
+\Chi-kwadrat = ˆsum_i ˆfrac{(obserwowane_i - oczekiwane_i)^2}{spodziewane_i}
+$$
+
+W przypadku naszego przykładu z cukierkami hipoteza zerowa brzmi, że proporcje każdego rodzaju cukierków są równe.  Aby obliczyć statystykę chi-squared, musimy najpierw podać nasze oczekiwane liczby przy hipotezie zerowej: ponieważ hipoteza zerowa mówi, że wszystkie są takie same, to jest to po prostu całkowita liczba podzielona na trzy kategorie (jak pokazano w Tabeli \@ref(tab:candyDf)).  Następnie bierzemy różnicę między każdym licznikiem a jego oczekiwaniem w hipotezie zerowej, podnosimy je do kwadratu, dzielimy przez oczekiwanie zerowe i dodajemy, aby uzyskać statystykę chi-squared.
+
+``{r candyDf, echo=FALSE}
+# oblicz statystykę chi-squared
+
+candyDf <- candyDf %>%
+  mutate(nullExpectation =c(1 / 3, 1 / 3, 1 / 3) * sum(candyDf$count),
+         `różnica kwadratowa`=(count - nullExpectation)**2)
+
+kable(candyDf, digits=3, caption='Obserwowane liczebności, oczekiwania przy hipotezie zerowej i różnice kwadratowe w danych o cukierkach')
+
+chisqVal <-
+  suma(
+    ((candyDf$count - candyDf$nullExpectation)**2) / candyDf$nullExpectation
+  )
+```
+
+Statystyka chi-squared dla tej analizy wychodzi `r I(chisqVal)`, co samo w sobie nie jest interpretowalne, ponieważ zależy od liczby różnych wartości, które zostały zsumowane.  Możemy jednak skorzystać z faktu, że statystyka chi-squared rozkłada się według określonego rozkładu przy hipotezie zerowej, który znany jest jako rozkład *chi-squared*.  Rozkład ten definiuje się jako sumę kwadratów zbioru standardowych normalnych zmiennych losowych; ma on liczbę stopni swobody równą liczbie sumowanych zmiennych. Kształt rozkładu zależy od liczby stopni swobody. Lewy panel rysunku \u0026.pl pokazuje przykłady rozkładu dla kilku różnych stopni swobody.
+
+``{r chisqDist,echo=FALSE,fig.cap="Left: Examples of the chi-squared distribution for various degrees of freedom.  Po prawej: Symulacja sumy kwadratów losowych zmiennych normalnych.   Histogram oparty jest na sumie kwadratów 50 000 zestawów 8 losowych zmiennych normalnych; linia przerywana pokazuje wartości teoretycznego rozkładu chi-squared z 8 stopniami swobody.",fig.width=8,fig.height=4,out.height='50%'}
+
+xvals <- seq(0.01, 20, 0.01)
+dfvals <- c(1, 2, 4, 8)
+chisqDf <-
+  data.frame(xvals, dfvals) %>%
+  complete(xvals, dfvals)
+chisqDf <-
+  chisqDf %>%
+  mutate(chisq = dchisq(x = xvals, df = dfvals),
+         dfvals= as.factor(dfvals)) %>%
+  group_by(dfvals) %>%
+  mutate(chisqNorm = chisq / max(chisq),
+         Df=dfvals
+         )
+
+
+p1 <- ggplot(chisqDf, aes(xvals, chisqNorm, group = Df, linetype = Df)) +
+  geom_line() +
+  theme(legend.position = c(0.8, 0.7)) +
+  labs(
+    fill = "Stopnie swobody",
+    color = "Stopnie swobody",
+    x = "Wartości chi-squared"
+  ) + ylab("Gęstość")
+
+
+# Symuluj 50,000 sum 8 standardowych normalnych zmiennych losowych i porównaj
+# to theoretical chi-squared distribution
+
+# utwórz macierz z 50k kolumn 8 wierszy kwadratowych normalnych zmiennych losowych
+d <- replicate(50000, rnorm(n = 8, mean = 0, sd = 1)**2)
+# sumuj każdą kolumnę 8 zmiennych
+dMean <- apply(d, 2, sum)
+
+# utwórz ramkę danych teoretycznego rozkładu chi-square
+# z 8 stopniami swobody
+csDf <-
+  data.frame(x = seq(0.01, 30, 0.01)) %>%
+  mutate(chisq = dchisq(x, 8))
+
+pval <- pchisq(chisqVal, df = 2, lower.tail = FALSE) #df = stopnie swobody
+
+p2 <- ggplot(data.frame(dMean),aes(dMean)) +
+  geom_histogram(aes(y=..density...),bins=100, fill='gray') +
+  geom_line(data=csDf,aes(x,chisq),linetype='dotted',size=1.5)+
+  xlim(0,30) + ylim(0,.12) +
+  labs(
+    y = "Gęstość",
+    x = "Suma kwadratów losowych zmiennych normalnych"
+  )
+
+plot_grid(p1, p2)
+```
+
+
+``{r echo=FALSE}
+
+```
+
+Sprawdźmy, czy rozkład chi-squared dokładnie opisuje sumę kwadratów zestawu standardowych normalnych zmiennych losowych, używając symulacji. W tym celu wielokrotnie losujemy zestawy 8 liczb losowych i sumujemy każdy zestaw po podniesieniu do kwadratu każdej wartości.  Prawy panel rysunku pokazuje, że rozkład teoretyczny ściśle pokrywa się z wynikami symulacji, która wielokrotnie sumowała kwadraty zbioru normalnych zmiennych losowych.
+
+Dla przykładu cukierków możemy obliczyć prawdopodobieństwo naszej obserwowanej wartości chi-squared `r I(chisqVal)` pod hipotezą zerową o równej częstotliwości we wszystkich cukierkach. Używamy rozkładu chi-squared ze stopniami swobody równymi k - 1 (gdzie k = liczba kategorii), ponieważ straciliśmy jeden stopień swobody, gdy obliczaliśmy średnią, aby wygenerować wartości oczekiwane.  Otrzymana wartość p (`r I(sprintf('P(Chi-squared) > %0,2f = %0,3f',chisqVal,pval))`) pokazuje, że zaobserwowane liczby cukierków nie są szczególnie zaskakujące na podstawie proporcji wydrukowanych na torbie cukierków i nie odrzucilibyśmy hipotezy zerowej o równych proporcjach.
+
+## Tabele kontyngencji i test dwukierunkowy {#two-way-test}
+
+Innym sposobem, w jaki często używamy testu chi-squared, jest pytanie, czy dwie zmienne kategoryczne są ze sobą powiązane.  Jako bardziej realistyczny przykład weźmy pytanie o to, czy czarny kierowca jest bardziej narażony na przeszukanie, gdy zostanie zatrzymany przez policjanta, w porównaniu z białym kierowcą.  Stanford Open Policing Project (https://openpolicing.stanford.edu/) zbadał to i dostarczył danych, które możemy wykorzystać do analizy tego pytania.  Użyjemy danych ze stanu Connecticut, ponieważ są one dość małe i przez to łatwiejsze do analizy.
+
+``{r echo=FALSE, message=FALSE, warning=FALSE}
+# załaduj dane o zatrzymaniach policji po wstępnym przetworzeniu używając code/process_CT_data.py
+stopData <-
+  read_csv("data/CT_data_cleaned.csv") %>%
+  rename(searched = search_conducted)
+```
+
+Standardowym sposobem reprezentacji danych z analizy kategorialnej jest *tabela zależności*, która przedstawia liczbę lub proporcję obserwacji mieszczących się w każdej możliwej kombinacji wartości dla każdej ze zmiennych. Poniższa tabela pokazuje tabelę kontyngencji dla danych dotyczących poszukiwań przez policję.  Przydatne może być również spojrzenie na tabelę kontyngencji przy użyciu proporcji, a nie surowych liczb, ponieważ są one łatwiejsze do porównania wizualnego, więc zamieszczamy tu zarówno liczby bezwzględne, jak i względne.
+
+``{r policeCT, echo=FALSE}
+# oblicz i wydrukuj dwukierunkową tabelę kontyngencji
+summaryDf2way <-
+  stopData %>%
+  count(searched, driver_race) %>%
+  arrange(driver_race, searched)
+
+summaryContingencyTable <-
+  summaryDf2way %>%
+  spread(driver_race, n)
+
+# Oblicz i wydrukuj tabelę kontyngencji używając proporcji
+# zamiast surowych częstotliwości
+summaryContingencyTable <-
+  summaryContingencyTable %>%
+  mutate(
+    Black (relative)` = Black / nrow(stopData), #count of Black individuals searched / total searched
+  `White (relative)` = White / nrow(stopData)
+  )
+
+kable(summaryContingencyTable, caption="Tabela warunkowości dla danych o przeszukaniach w policji")
+```
+
+Test chi-squared Pearsona pozwala nam sprawdzić, czy obserwowane częstości różnią się od częstości oczekiwanych, więc musimy określić, jakich częstości spodziewalibyśmy się w każdej komórce, gdyby przeszukania i rasa były niepowiązane -- co możemy zdefiniować jako bycie *niezależnym.* Pamiętaj z rozdziału o prawdopodobieństwie, że jeśli X i Y są niezależne, to:
+
+$$
+P(X = Y) = P(X) * P(Y)
+$$
+To znaczy, że wspólne prawdopodobieństwo przy hipotezie zerowej o niezależności jest po prostu iloczynem *marginalnych* prawdopodobieństw każdej zmiennej z osobna. Prawdopodobieństwa krańcowe to po prostu prawdopodobieństwa wystąpienia każdego zdarzenia niezależnie od innych zdarzeń. Możemy obliczyć te prawdopodobieństwa krańcowe, a następnie pomnożyć je razem, aby otrzymać oczekiwane proporcje przy zachowaniu niezależności.  
+
+
+| Czarny | Biały | |
+|--------------|------------|------------|-------|
+| Nie szukano | P(NS)*P(B) | P(NS)*P(W) | P(NS) | P(NS)
+| P(S)*P(B) | P(S)*P(W) | P(S) |
+| P(B) | P(W) | |
+
+
+``{r echo=FALSE}
+# Najpierw oblicz prawdopodobieństwa krańcowe
+
+# prawdopodobieństwo bycia każdą rasą
+summaryDfRace <-
+  stopData %>%
+  count(driver_race) %>% #oblicz liczbę kierowców każdego wyścigu
+  mutate(
+    prop = n / sum(n) #oblicz proporcję każdego wyścigu spośród wszystkich kierowców
+  )
+
+# prawdopodobieństwo wyszukania
+summaryDfStop <-
+  stopData %>%
+  count(searched) %>% #oblicz liczbę przeszukanych i nieprzeszukanych
+  mutate(
+    prop = n / sum(n) # oblicz proporcję każdego wyniku do wszystkich zatrzymań ruchu drogowego
+  )
+
+# Możemy użyć sztuczki algebry liniowej znanej jako "zewnętrzny produkt"
+# (poprzez funkcję `outer()`), aby łatwo to obliczyć.
+# Po drugie, pomnóż zewnętrzny produkt przez n (wszystkie przystanki), aby obliczyć oczekiwane częstotliwości
+expected <- outer(summaryDfRace$prop, summaryDfStop$prop) * nrow(stopData)
+
+# utwórz ramkę danych z oczekiwanymi częstotliwościami dla każdego wyścigu
+expectedDf <-
+  data.frame(expected, driverRace = c("Black", "White")) %>%
+  rename(
+    NotSearched = X1,
+    Searched = X2
+  )
+
+# uporządkuj ramkę danych
+expectedDfTidy <-
+  gather(expectedDf, searched, n, -driverRace) %>%
+  arrange(driverRace, searched)
+
+# Po trzecie, dodajemy oczekiwane częstotliwości do oryginalnej tabeli zbiorczej.
+# i po czwarte, obliczamy standaryzowaną różnicę kwadratów między
+# obserwowanymi i oczekiwanymi częstotliwościami
+
+summaryDf2way <-
+  summaryDf2way %>%
+  mutate(expected = expectedDfTidy$n)
+
+summaryDf2way <-
+  summaryDf2way %>%
+  mutate(stdSqDiff = (n - expected)**2 / expected)
+
+chisq <- suma(summaryDf2way$stdSqDiff)
+pval <- pchisq(chisq, df = 1, lower.tail = FALSE)
+
+#kable(summaryDf2way, digits=2,caption="Podsumowanie 2-kierunkowej tabeli kontyngencji dla danych o poszukiwaniach w policji")
+```
+
+Następnie obliczamy statystykę chi-squared, która wychodzi `r I(chisq)`.
+Aby obliczyć wartość p, musimy porównać ją z zerowym rozkładem chi-squared, aby określić, jak skrajna jest nasza wartość chi-squared w porównaniu z naszym oczekiwaniem przy hipotezie zerowej.  Stopnie swobody dla tego rozkładu to $df = (nRows - 1) * (nColumns - 1)$ - zatem dla tablicy 2X2, takiej jak tutaj, $df = (2-1)*(2-1)=1$.  Intuicja jest tu taka, że obliczenie oczekiwanych częstości wymaga od nas użycia trzech wartości: całkowitej liczby obserwacji oraz prawdopodobieństwa krańcowego dla każdej z dwóch zmiennych.  Zatem po obliczeniu tych wartości pozostaje tylko jedna liczba, która może się dowolnie zmieniać, a więc istnieje jeden stopień swobody.  Biorąc to pod uwagę, możemy obliczyć wartość p dla statystyki chi-squared, która jest tak bliska zeru, jak to tylko możliwe: 3,79 $ ^{-182}$.  Pokazuje to, że obserwowane dane byłyby wysoce nieprawdopodobne, gdyby rzeczywiście nie istniał związek między rasą a przeszukaniem przez policję, a zatem powinniśmy odrzucić hipotezę zerową o niezależności.
+
+Możemy również łatwo przeprowadzić ten test za pomocą naszego oprogramowania statystycznego:
+
+``{r echo=FALSE}
+# najpierw musimy uporządkować dane w tabeli 2x2
+summaryDf2wayTable <-
+  summaryDf2way %>%
+  dplyr::select(-expected, -stdSqDiff) %>%
+  spread(searched, n) %>%
+  dplyr::select(-driver_race)
+
+chisqTestResult <- chisq.test(summaryDf2wayTable, 1, correct = FALSE)
+chisqTestResult
+```
+
+## Standaryzowane reszty
+
+Kiedy znajdujemy znaczący efekt za pomocą testu chi-squared, mówi nam to, że dane są nieprawdopodobne pod hipotezą zerową, ale nie mówi nam *jak* dane się różnią.  Aby uzyskać głębszy wgląd w to, jak dane różnią się od tego, czego oczekiwalibyśmy przy hipotezie zerowej, możemy zbadać resztę z modelu, która odzwierciedla odchylenie danych (tj. obserwowanych częstotliwości) od modelu (tj. oczekiwanych częstotliwości) w każdej komórce. Zamiast patrzeć na surowe reszty (które będą się po prostu różnić w zależności od liczby obserwacji w danych), częściej patrzy się na *standaryzowane reszty* (czasami nazywane *resztami Pearsona*), które są obliczane jako:
+
+$$
+standaryzowana reszta = \frac{observed_{ij} - expected_{ij}}{\i0}}.
+$$
+gdzie $i$ i $j$ są indeksami odpowiednio wierszy i kolumn.  
+
+W tabeli tab:stdRes przedstawiono je dla danych o zatrzymaniach w policji.  Te standaryzowane resztki mogą być interpretowane jako wyniki Z - w tym przypadku widzimy, że liczba przeszukań osób czarnoskórych jest znacznie wyższa niż oczekiwana na podstawie niezależności, a liczba przeszukań osób białych jest znacznie niższa niż oczekiwana. To dostarcza nam kontekstu, którego potrzebujemy, aby zinterpretować znaczący wynik chi-squared.
+
+``{r stdRes, echo=FALSE}
+# obliczyć standaryzowane reszty
+summaryDfResids <-
+  summaryDf2way %>%
+  mutate(`Standardized residuals` = (n - expected)/sqrt(expected)) %>%
+  dplyr::select(-n, -expected, -stdSqDiff)
+
+kable(summaryDfResids, caption="Summary of standardized residuals for police stop data")
+```
+
+
+## Współczynniki szans
+
+Możemy również przedstawić względne prawdopodobieństwo różnych wyników w tabeli kontyngencji, używając współczynnika szans, który wprowadziliśmy wcześniej, aby lepiej zrozumieć wielkość efektu.  Najpierw przedstawiamy szanse zatrzymania dla każdej rasy, a następnie obliczamy ich stosunek:
+
+$$
+odds_{searched|black} = \frac{N_{searched|czarny}}{N_{not searched|czarny}} = \frac{1219}{36244} = 0,034
+$$
+
+$$
+odds_{searched|white} = \frac{N_{searched|białe}}{N_{not searched|białe} = \u200}{239241} = 0.013
+$$
+$$
+Współczynnik szans = \u200}{odds_{searched|black}}{odds_{searched|white}} = 2,59
+$$
+
+Współczynnik szans pokazuje, że prawdopodobieństwo bycia poszukiwanym jest 2,59 razy większe dla czarnych i białych kierowców, na podstawie tego zestawu danych.
+
+## Współczynnik Bayesa
+
+Omawialiśmy współczynniki Bayesa we wcześniejszym rozdziale dotyczącym statystyki bayesowskiej -- być może pamiętasz, że reprezentuje on stosunek prawdopodobieństwa danych pod każdą z dwóch hipotez:
+$$
+K = ¨frac{P(dane|H_A)}{P(dane|H_0)} = ¨frac{P(H_A|dane)*P(H_A)}{P(H_0|dane)*P(H_0)}
+$$
+Możemy obliczyć współczynnik Bayesa dla danych o przeszukaniach w policji za pomocą naszego oprogramowania statystycznego:
+
+``{r echo=FALSE}
+# oblicz współczynnik Bayesa
+# używając niezależnego wielomianowego planu próbkowania, w którym sumy wierszy (rasy kierowców)
+# są stałe
+
+bf <-
+  contingencyTableBF(as.matrix(summaryDf2wayTable),
+  sampleType = "indepMulti",
+  fixedMargin = "cols"
+)
+bf
+
+```
+
+To pokazuje, że dowody na korzyść związku pomiędzy rasą kierowcy a przeszukaniami policyjnymi w tym zbiorze danych są niezwykle silne --- $1.8 * 10^{142}$ jest tak bliskie nieskończoności, jak tylko możemy sobie wyobrazić w statystyce.
+
+## Analiza kategoryczna poza tabelą 2 X 2
+
+Analiza kategoryczna może być również stosowana do tabel kontyngencji, gdzie istnieją więcej niż dwie kategorie dla każdej zmiennej.
+
+Na przykład, spójrzmy na dane NHANES i porównajmy zmienną *Depresja*, która oznacza "samodzielnie zgłoszoną liczbę dni, w których uczestnik czuł się zdołowany, przygnębiony lub beznadziejny".  Zmienna ta jest zakodowana jako ``Żadna``, ``Kilka``, lub ``Wielka``.  Sprawdźmy, czy ta zmienna jest związana ze zmienną *SleepTrouble*, która określa, czy dana osoba zgłaszała lekarzowi problemy ze snem.  
+
+``{r echo=FALSE}
+# podsumuj depresję jako funkcję problemów ze snem
+depressedSleepTrouble <-
+  NHANES_adult %>%
+  drop_na(SleepTrouble, Depressed) %>%
+  count(SleepTrouble, Depressed) %>%
+  arrange(SleepTrouble, Depressed)
+
+depressedSleepTroubleTable <-
+  depresjaSleepTrouble %>%
+  spread(SleepTrouble, n) %>%
+  rename(
+    NoSleepTrouble = No,
+    YesSleepTrouble = Yes
+  )
+
+kable(depressedSleepTroubleTable, caption="Związek między depresją a problemami ze snem w zbiorze danych NHANES")
+```
+
+Po prostu patrząc na te dane, możemy stwierdzić, że prawdopodobnie istnieje związek między tymi dwiema zmiennymi; w szczególności, podczas gdy całkowita liczba osób z problemami ze snem jest znacznie mniejsza niż osób bez depresji, w przypadku osób, które zgłaszają depresję przez większość dni, liczba osób z problemami ze snem jest większa niż osób bez depresji.  Możemy to określić bezpośrednio za pomocą testu chi-squared:
+
+``{r echo=FALSE}
+# musimy usunąć kolumnę z nazwami etykiet
+depressedSleepTroubleTable <-
+  depressedSleepTroubleTable %>%
+  dplyr::select(-Depressed)
+
+depressedSleepChisq <- chisq.test(depressedSleepTroubleTable)
+depressedSleepChisq
+```
+
+Ten test pokazuje, że istnieje silny związek między depresją a kłopotami ze snem.  Możemy również obliczyć współczynnik Bayesa, aby określić siłę dowodów na korzyść hipotezy alternatywnej:
+
+``{r echo=FALSE}
+# oblicz współczynnik Bayesa, używając wspólnego wielomianowego planu próbkowania
+bf <-
+  contingencyTableBF(
+    as.matrix(depressedSleepTroubleTable),
+    sampleType = "jointMulti"
+  )
+bf
+```
+
+Tutaj widzimy, że współczynnik Bayesa jest bardzo duży (1,8 * 10^{35}$), pokazując, że dowody na korzyść związku między depresją a problemami ze snem są bardzo silne.
+
+## Uważaj na paradoks Simpsona
+
+Przedstawione powyżej tabele kontyngencji stanowią podsumowania dużej liczby obserwacji, ale podsumowania mogą być czasem mylące.  Weźmy przykład z baseballu.  Poniższa tabela przedstawia dane dotyczące battingu (trafienia/at bats i średnia battingu) dla Dereka Jetera i Davida Justice'a w latach 1995-1997:
+
+| Gracz | 1995 | 1996 | 1997 | | Łącznie |.
+|---------|---------|------|---------|------|---------|------|----------|------|
+| Derek Jeter | 12/48 | .250 | 183/582 | .314 | 190/654 | .291 | 385/1284 | __.300__ |
+| David Justice | 104/411 | __.253__ | 45/140 | __.321__ | 163/495 | __.329__ | 312/1046 | .298 |
+
+Jeśli przyjrzysz się bliżej, zobaczysz, że dzieje się coś dziwnego: W każdym pojedynczym roku Justice miał wyższą średnią battingu niż Jeter, ale kiedy połączymy dane ze wszystkich trzech lat, średnia Jetera jest w rzeczywistości wyższa niż Justice'a!  Jest to przykład zjawiska znanego jako *paradoks Simpsona*, w którym wzór, który jest obecny w połączonym zbiorze danych, może nie być obecny w żadnym z podzbiorów danych.  Dzieje się tak, gdy istnieje inna zmienna, która może się zmieniać w różnych podzbiorach - w tym przypadku liczba at-bats zmienia się w różnych latach, a Justice uderzał o wiele więcej razy w 1995 roku (gdy średnie uderzeń były niskie).  Określamy to jako *zmienną czającą się* i zawsze ważne jest, by zwracać uwagę na takie zmienne, gdy badamy dane kategoryczne.
+
+## Cele dydaktyczne
+
+* Opisać pojęcie tabeli kontyngencji dla danych kategorycznych.
+* Opisz pojęcie testu chi-squared dla asocjacji i oblicz go dla danej tabeli warunkowej.
+* Opisać paradoks Simpsona i dlaczego jest on ważny w analizie danych kategorycznych.
+
+
+## Dodatkowe lektury
+
+* [Paradoks Simpsona w naukach psychologicznych: praktyczny przewodnik](https://www.frontiersin.org/articles/10.3389/fpsyg.2013.00513/full)

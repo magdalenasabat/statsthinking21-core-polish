@@ -1,0 +1,626 @@
+---
+output:
+  html_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+---
+# Probability
+
+``{r echo=FALSE,message=FALSE}
+library(dplyr)
+library(reshape2)
+library(tidyr)
+biblioteka(ggplot2)
+library(knitr)
+biblioteka(readr)
+library(cowplot)
+library(janitor)
+# załaduj bibliotekę danych NHANES
+library(NHANES)
+
+```
+
+Teoria prawdopodobieństwa jest dziedziną matematyki, która zajmuje się przypadkiem i niepewnością.  Stanowi ona ważną część podstaw statystyki, ponieważ dostarcza nam narzędzi matematycznych do opisywania niepewnych zdarzeń.  Badanie prawdopodobieństwa powstało częściowo z powodu zainteresowania zrozumieniem gier losowych, takich jak karty czy kości.  Gry te stanowią użyteczne przykłady wielu pojęć statystycznych, ponieważ kiedy powtarzamy te gry, prawdopodobieństwo różnych wyników pozostaje (przeważnie) takie samo. Istnieją jednak głębokie pytania dotyczące znaczenia prawdopodobieństwa, którymi nie będziemy się tutaj zajmować; zobacz Sugerowane lektury na końcu, jeśli chcesz dowiedzieć się więcej o tym fascynującym temacie i jego historii.
+
+## Czym jest prawdopodobieństwo?
+
+Nieformalnie, zwykle myślimy o prawdopodobieństwie jako o liczbie opisującej prawdopodobieństwo wystąpienia jakiegoś zdarzenia, które waha się od zera (niemożliwość) do jednego (pewność).  Czasami prawdopodobieństwo jest wyrażane w procentach, które mają zakres od zera do stu, jak w przypadku prognozy pogody, która przewiduje dwadzieścia procent szans na deszcz w dniu dzisiejszym.  W każdym przypadku liczby te wyrażają, jak bardzo prawdopodobne jest to konkretne wydarzenie, w zakresie od absolutnie niemożliwego do absolutnie pewnego.
+
+Aby sformalizować teorię prawdopodobieństwa, musimy najpierw zdefiniować kilka pojęć:
+
+- **Doświadczenie** to każda czynność, w wyniku której powstaje lub jest obserwowany wynik.  Przykładem może być rzucanie monetą, toczenie sześciościennej kostki lub wypróbowanie nowej trasy do pracy, aby sprawdzić, czy jest szybsza niż stara trasa.
+- Przestrzeń prób** to zbiór możliwych wyników eksperymentu.  Reprezentujemy je poprzez wypisanie ich w nawiasach kwadratowych. Dla rzutu monetą przestrzeń próbek to {główki, reszki}.  W przypadku sześciostronnej kostki do gry, przestrzenią próbkowania jest każda z możliwych liczb, które mogą się pojawić: {1,2,3,4,5,6}.  Dla czasu potrzebnego na dotarcie do pracy, przestrzenią próbkowania są wszystkie możliwe liczby rzeczywiste większe od zera (ponieważ dotarcie gdzieś nie może zająć ujemnej ilości czasu, przynajmniej na razie). Nie będziemy sobie zawracać głowy próbą wypisania wszystkich tych liczb w nawiasach.
+- **zdarzenie** jest podzbiorem przestrzeni próbek.  W zasadzie może to być jeden lub więcej możliwych wyników w przestrzeni próbek, ale tutaj skupimy się głównie na *elementarnych wydarzeniach*, które składają się z dokładnie jednego możliwego wyniku.  Na przykład, może to być uzyskanie reszki w pojedynczym rzucie monetą, wyrzucenie 4 w rzucie kością lub zajęcie 21 minut na dotarcie do domu nową trasą.
+
+Teraz, gdy mamy już te definicje, możemy nakreślić formalne cechy prawdopodobieństwa, które zostały po raz pierwszy zdefiniowane przez rosyjskiego matematyka Andrieja Kołmogorowa. Są to cechy, które wartość *musi* mieć, jeśli ma być prawdopodobieństwem. Powiedzmy, że mamy przestrzeń próbek zdefiniowaną przez N niezależnych zdarzeń, ${E_1, E_2, ... , E_N}$, a $X$ jest zmienną losową oznaczającą, które ze zdarzeń wystąpiło.  $P(X=E_i)$ to prawdopodobieństwo wystąpienia zdarzenia $i$:
+
+- Prawdopodobieństwo nie może być ujemne: $P(X=E_i) jest równe 0$.
+- Całkowite prawdopodobieństwo wszystkich wyników w przestrzeni próby wynosi 1; to znaczy, że , jeśli weźmiemy prawdopodobieństwa każdego Ei i dodamy je do siebie, to muszą one sumować się do 1. Możemy to wyrazić za pomocą symbolu sumowania $$:
+$$
+\N{i=1}^N{P(X=E_i)} = P(X=E_1) + P(X=E_2) + ... + P(X=E_N) = 1
+$$
+Interpretuje się to jako stwierdzenie "Weźmy wszystkie N zdarzeń elementarnych, które oznaczyliśmy od 1 do N, i zsumujmy ich prawdopodobieństwa. Muszą one sumować się do jednego".  
+- Prawdopodobieństwo każdego pojedynczego zdarzenia nie może być większe niż jeden: $P(X=E_i)ło 1$.  Wynika to z poprzedniego punktu; skoro muszą się one sumować do jednego i nie mogą być ujemne, to żadne konkretne prawdopodobieństwo nie może przekroczyć jedności.
+
+## Jak określamy prawdopodobieństwa?
+
+Teraz, gdy wiemy, czym jest prawdopodobieństwo, jak właściwie możemy dowiedzieć się, jakie jest prawdopodobieństwo dla jakiegoś konkretnego zdarzenia?
+
+### Osobiste przekonania
+
+Powiedzmy, że zapytałem Cię, jakie jest prawdopodobieństwo, że Bernie Sanders wygrałby wybory prezydenckie w 2016 roku, gdyby był demokratycznym nominatem zamiast Hilary Clinton?   W rzeczywistości nie możemy przeprowadzić eksperymentu, aby znaleźć wynik. Jednak większość osób znających amerykańską politykę byłaby skłonna przynajmniej zaoferować przypuszczenie co do prawdopodobieństwa tego wydarzenia.  W wielu przypadkach osobista wiedza i/lub opinia jest jedyną wskazówką, jaką mamy określającą prawdopodobieństwo zdarzenia, ale nie jest to zbyt satysfakcjonujące z naukowego punktu widzenia.
+
+### Częstotliwość empiryczna {#empirical-frequency}
+
+Innym sposobem określenia prawdopodobieństwa zdarzenia jest wykonanie eksperymentu wiele razy i policzenie, jak często zdarza się każde zdarzenie.  Na podstawie względnej częstości występowania różnych wyników możemy obliczyć prawdopodobieństwo każdego z nich.  Na przykład, powiedzmy, że jesteśmy zainteresowani poznaniem prawdopodobieństwa deszczu w San Francisco.  Najpierw musimy zdefiniować eksperyment --- powiedzmy, że przyjrzymy się danym National Weather Service dla każdego dnia w 2017 roku i ustalimy, czy w stacji meteorologicznej w centrum San Francisco wystąpił deszcz. Zgodnie z tymi danymi, w 2017 roku były 73 deszczowe dni.  Aby obliczyć prawdopodobieństwo deszczu w San Francisco, po prostu dzielimy liczbę deszczowych dni przez liczbę dni policzonych (365), co daje P(deszcz w SF w 2017 roku) = 0,2.
+
+``{r RainInSF,echo=FALSE,warning=FALSE,message=FALSE}
+# załaduj dane o deszczu w San Francisco i oblicz prawdopodobieństwo
+# z https://www.ncdc.noaa.gov/
+SFrain <- read_csv("data/SanFranciscoRain/1329219.csv")
+
+# utwórz nową zmienną wskazującą, czy padało każdego dnia
+SFrain <-
+  SFrain %>%
+  mutate(rainToday = as.integer(PRCP > 0))
+
+SFrain_summary <-
+  SFrain %>%
+  summarize(
+    nRainyDays = sum(rainToday),
+    nDaysMeasured = n(),
+    pRainInSF = nRainyDays / nDaysMeasured
+  )
+names(SFrain_summary) <- c('Liczba dni deszczowych','Liczba dni zmierzonych','P(deszcz)')
+# kable(SFrain_summary)
+```
+
+Skąd wiemy, że prawdopodobieństwo empiryczne daje nam właściwą liczbę? Odpowiedź na to pytanie pochodzi z *prawa wielkich liczb*, które pokazuje, że prawdopodobieństwo empiryczne będzie zbliżać się do prawdziwego prawdopodobieństwa wraz ze wzrostem wielkości próbki.  Możemy to zobaczyć symulując dużą liczbę rzutów monetą i patrząc na nasze oszacowanie prawdopodobieństwa główki po każdym rzucie.  Więcej czasu poświęcimy na omówienie symulacji w późniejszym rozdziale; na razie załóżmy, że mamy sposób obliczeniowy na wygenerowanie losowego wyniku dla każdego rzutu monetą.
+
+``{r FlipSim,echo=FALSE}
+
+set.seed(12345) # ustawiamy nasiona tak, aby wynik był spójny
+nsamples <- 30000 # how many flips do we want to make?
+# utwórz kilka losowych rzutów monetą używając funkcji rbinom() z
+# prawdopodobieństwem prawdziwym 0.5
+
+sampDf <-
+  tibble(
+    trial_number = seq(nsamples),
+    outcomes = rbinom(nsamples, 1, 0.5)
+  ) %>%
+  mutate(mean_probability = cumsum(outcomes) / seq_along(outcomes))
+
+p1 <- sampDf %>%
+  slice(10:nsamples) %>% # zacznij od minimalnej próbki 10 sald
+  ggplot(aes(x = trial_number, y = mean_probability)) +
+  geom_hline(yintercept = 0.5, color = "blue", linetype = "dashed") +
+  geom_line() +
+  labs(
+    x = "Liczba prób",
+    y = "Szacowane prawdopodobieństwo wystąpienia głów"
+  )
+```
+
+Lewy panel rysunku pokazuje, że wraz ze wzrostem liczby próbek (tj. prób rzutu monetą), szacowane prawdopodobieństwo głów zbiega do prawdziwej wartości 0.5. Zauważmy jednak, że szacunki mogą być bardzo odległe od prawdziwej wartości, gdy wielkość próby jest mała.  Przykładem tego są specjalne wybory do Senatu USA w Alabamie w 2017 roku, w których Republikanin Roy Moore zmierzył się z Demokratą Dougiem Jonesem.  Prawy panel rysunku pokazuje względną ilość głosów zgłoszonych dla każdego z kandydatów w ciągu wieczoru, w miarę jak coraz większa liczba kart do głosowania była liczona. Wczesnym wieczorem liczenie głosów było szczególnie zmienne, wahając się od dużej początkowej przewagi Jonesa do długiego okresu, w którym Moore miał przewagę, aż w końcu Jones przejął prowadzenie i wygrał wyścig.  
+
+``{r ElectionResults, echo=FALSE,message=FALSE,fig.cap='Left: Demonstracja prawa wielkich liczb.  Moneta została rzucona 30 000 razy, a po każdym rzucie prawdopodobieństwo główki zostało obliczone na podstawie liczby główek i ogonków zebranych do tego momentu.  Potrzeba około 15 000 rzutów, aby prawdopodobieństwo ustaliło się na poziomie prawdziwego prawdopodobieństwa 0,5. Po prawej: Względna proporcja głosów w wyborach specjalnych z 12 grudnia 2017 r. na miejsce w Senacie USA w Alabamie, jako funkcja procentu zgłaszających się obwodów. Dane te zostały przepisane z https://www.ajc.com/news/national/alabama-senate-race-live-updates-roy-moore-doug-jones/KPRfkdaweoiXICW3FHjXqI/',fig.width=8,fig.height=4,out.height='50%'}
+
+electionReturns <-
+  read_csv(
+    "data/03/alabama_election_returns.csv"
+  ) %>%
+  gather(candidate, pctVotes, -pctResp)
+
+p2 <- electionReturns %>%
+  ggplot(aes(pctResp, pctVotes, color = candidate)) +
+  geom_line(aes(linetype=candidate),size = 1) +
+  scale_color_manual(values = c("#9999CC", "#CC6666")) +
+  labs(
+    x = "Procent zgłaszających się obwodów",
+    y = "Procent głosów"
+  ) +
+  theme(legend.position = c(.7,0.8))
+plot_grid(p1, p2)
+```
+
+Te dwa przykłady pokazują, że o ile duże próbki będą ostatecznie zbieżne z prawdziwym prawdopodobieństwem, o tyle wyniki z małych próbek mogą być dalekie.  Niestety, wiele osób o tym zapomina i nadinterpretuje wyniki z małych próbek.  Zostało to nazwane *prawem małych liczb* przez psychologów Danny'ego Kahnemana i Amosa Tversky'ego, którzy wykazali, że ludzie (nawet wyszkoleni badacze) często zachowują się tak, jakby prawo dużych liczb obowiązywało nawet w przypadku małych prób, dając zbyt wiele wiary wynikom opartym na małych zbiorach danych.  W trakcie kursu zobaczymy przykłady tego, jak niestabilne mogą być wyniki statystyczne, gdy są generowane na podstawie małych prób.
+
+### Klasyczne prawdopodobieństwo
+
+Jest mało prawdopodobne, że ktokolwiek z nas kiedykolwiek rzucał monetą dziesiątki tysięcy razy, ale mimo to jesteśmy skłonni uwierzyć, że prawdopodobieństwo wyrzucenia reszki wynosi 0,5.  Odzwierciedla to zastosowanie jeszcze innego podejścia do obliczania prawdopodobieństwa, które nazywamy *prawdopodobieństwem klasycznym*.  W tym podejściu, obliczamy prawdopodobieństwo bezpośrednio na podstawie naszej wiedzy o sytuacji.  
+
+Klasyczne prawdopodobieństwo powstało w wyniku badań nad grami losowymi, takimi jak kości i karty.  Słynny przykład powstał w wyniku problemu napotkanego przez francuskiego hazardzistę, który nazywał się Chevalier de Méré. de Méré grał w dwie różne gry w kości: W pierwszej z nich stawiał na szansę uzyskania przynajmniej jednej szóstki w czterech rzutach sześciościenną kostką, a w drugiej na szansę uzyskania przynajmniej jednej podwójnej szóstki w 24 rzutach dwiema kostkami.  Spodziewał się, że wygra pieniądze w obu tych grach, ale odkrył, że podczas gdy średnio wygrywał pieniądze w pierwszej grze, to w rzeczywistości tracił pieniądze średnio, gdy grał w drugą grę wiele razy. Aby to zrozumieć zwrócił się do swojego przyjaciela, matematyka Blaise Pascala, który jest obecnie uznawany za jednego z twórców teorii prawdopodobieństwa.
+
+Jak możemy zrozumieć to pytanie używając teorii prawdopodobieństwa?  W klasycznym prawdopodobieństwie zaczynamy od założenia, że wszystkie elementarne zdarzenia w przestrzeni próby są równie prawdopodobne; to znaczy, że kiedy rzucamy kością, każdy z możliwych wyników ({1,2,3,4,5,6}) jest równie prawdopodobny.  (No loaded dice allowed!) Biorąc to pod uwagę, możemy obliczyć prawdopodobieństwo każdego pojedynczego wyniku jako jeden podzielony przez liczbę możliwych wyników:
+
+$$
+P(wynik_i) = \u200}{1}{}tekst{liczba możliwych wyników}}
+$$
+
+Dla sześciostronnej matrycy prawdopodobieństwo każdego pojedynczego wyniku wynosi 1/6.
+
+To ładne, ale de Méré był zainteresowany bardziej złożonymi zdarzeniami, takimi jak to, co dzieje się przy wielokrotnych rzutach kostką.  Jak obliczyć prawdopodobieństwo złożonego zdarzenia (które jest *związkiem* pojedynczych zdarzeń), takiego jak wyrzucenie szóstki w pierwszym *lub* drugim rzucie?  Reprezentujemy związek zdarzeń matematycznie, używając symbolu $P(Rzut1)$, a prawdopodobieństwo wyrzucenia szóstki w pierwszym rzucie to $P(Rzut2)$, wtedy związek jest określany jako $P(Rzut1)$.
+
+de Méré uważał (błędnie, jak zobaczymy poniżej), że może po prostu zsumować prawdopodobieństwa poszczególnych zdarzeń, aby obliczyć prawdopodobieństwo zdarzenia łączonego, co oznacza, że prawdopodobieństwo wyrzucenia szóstki w pierwszym lub drugim rzucie będzie obliczone w następujący sposób:
+
+$$
+P(Roll6_{throw1}) = 1/6
+$$
+$$
+P(Rzut6_{Rzut2}) = 1/6
+$$
+
+$$
+Błąd de Mérégo:
+$$
+$$
+P(Roll6_{throw1} = P(Roll6_{throw1}) + P(Roll6_{throw2}) = 1/6 + 1/6 = 1/3
+$$
+
+de Méré rozumował w oparciu o to błędne założenie, że prawdopodobieństwo wystąpienia co najmniej jednej szóstki w czterech rzutach jest sumą prawdopodobieństw na każdym z poszczególnych rzutów: $4*}{1}{6}= $4}{2}{3}$.  Podobnie rozumował, że skoro prawdopodobieństwo wystąpienia podwójnej szóstki przy rzucie dwiema kostkami wynosi 1/36, to prawdopodobieństwo wystąpienia co najmniej jednej podwójnej szóstki w 24 rzutach dwiema kostkami wyniesie 24***frac{1}{36}=frac{2}{3}$.  Jednak, podczas gdy konsekwentnie wygrał pieniądze na pierwszym zakładzie, stracił pieniądze na drugim zakładzie.  Co się dzieje?
+
+Aby zrozumieć błąd de Mérégo, musimy wprowadzić kilka zasad teorii prawdopodobieństwa.  Pierwszą z nich jest *zasada odejmowania*, która mówi, że prawdopodobieństwo, że jakieś zdarzenie A *nie* wystąpi, wynosi jeden minus prawdopodobieństwo, że zdarzenie to wystąpi:
+
+$$
+P(bez A) = 1 - P(A)
+$$
+
+gdzie $neg A$ oznacza "nie A". Zasada ta wynika bezpośrednio z aksjomatów, które omówiliśmy powyżej; ponieważ A i $neg A$ są jedynymi możliwymi wynikami, to ich całkowite prawdopodobieństwo musi sumować się do 1.  Na przykład, jeśli prawdopodobieństwo wyrzucenia jedynki w jednym rzucie wynosi $frac{1}{6}$, to prawdopodobieństwo wyrzucenia czegokolwiek innego niż jedynka wynosi $frac{5}{6}$.
+
+Druga reguła mówi nam, jak obliczyć prawdopodobieństwo zdarzenia conjoint - to znaczy prawdopodobieństwo, że oba zdarzenia wystąpią. Określamy to jako *przecięcie*, które jest oznaczane symbolem $P(A \u002600↩ oznacza prawdopodobieństwo wystąpienia zarówno A jak i B.  Skupimy się na wersji reguły, która mówi nam, jak obliczyć tę wielkość w szczególnym przypadku, gdy dwa zdarzenia są od siebie niezależne; później dowiemy się dokładnie, co oznacza pojęcie *niezależności*, ale na razie możemy po prostu przyjąć za pewnik, że dwa rzuty kością są zdarzeniami niezależnymi.  Obliczamy prawdopodobieństwo przecięcia dwóch niezależnych zdarzeń, mnożąc po prostu prawdopodobieństwa poszczególnych zdarzeń:
+
+$$
+P(A ń B) = P(A) * P(B)ń {jeśli i tylko jeśli A i B są niezależne}
+$$
+Zatem prawdopodobieństwo wyrzucenia szóstki na obu rolkach wynosi $frac{1}{6}* $frac{1}{6}= $frac{1}{36}$.
+
+Trzecia reguła mówi nam, jak dodawać prawdopodobieństwa - i to właśnie tutaj widzimy źródło błędu de Mérégo.  Reguła dodawania mówi nam, że aby otrzymać prawdopodobieństwo wystąpienia jednego z dwóch zdarzeń, dodajemy do siebie poszczególne prawdopodobieństwa, ale następnie odejmujemy prawdopodobieństwo wystąpienia obu zdarzeń razem:
+
+$$
+P(A ń B) = P(A) + P(B) - P(A ń B)
+$$
+W pewnym sensie zapobiega to dwukrotnemu liczeniu tych przypadków i to właśnie odróżnia tę regułę od błędnych obliczeń de Mérégo. Powiedzmy, że chcemy znaleźć prawdopodobieństwo wytoczenia 6 przy którymś z dwóch rzutów.  Zgodnie z naszymi regułami:
+
+
+$$
+P(Rzut6_{Rzut1}) = P(Rzut6_{Rzut1}) + P(Rzut2}) - P(Rzut6_{Rzut1}).
+$$
+$$
+= \frac{1}{6} + ﬁrrac{1}{6} - = ﬁrac{1}{36} = ﬁrac{11}{36}
+$$
+
+``{r ThrowMatrix, echo=FALSE,fig.cap="Każda komórka w tej macierzy reprezentuje jeden wynik dwóch rzutów kością, przy czym kolumny reprezentują pierwszy rzut, a wiersze drugi. Komórki zaznaczone na czerwono reprezentują komórki z szóstką w pierwszym lub drugim rzucie; pozostałe są zaznaczone na niebiesko.',fig.width=4,fig.height=4,out.height='50%'}
+imgmtx <-
+  matrix(0, nrow = 6, ncol = 6)
+
+imgmtx[, 1] <- 1
+imgmtx[6, ] <- 1
+
+plot <-
+  imgmtx %>%
+  melt() %>%
+  ggplot(aes(Var1, Var2, fill = value)) +
+  scale_fill_gradientn(colors=c("#0000FFFF", "#FFFFFF", "#FF0000FF")) +
+  geom_raster(interpolate = FALSE)
+
+for (i in seq(0.5, 6.5)) {
+  plot <-
+    plot + geom_hline(yintercept = i, color = "white")
+  plot <-
+    plot + geom_vline(xintercept = i, color = "white")
+  for (j in seq(0.5, 6.5)) {
+    plot <-
+      plot + annotate(
+        "text",
+        x = i + 0.5, y = 6.5 - j, # j + 0.5,
+        label = sprintf("%d,%d", i + 0.5, j + 0.5),
+        color = "white")
+  }
+}
+
+plot +
+  theme_minimal() +
+  theme(
+    axis.line = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "none"
+  ) +
+  labs(
+    x = "Rzut 1"
+    y = "Rzut 2"
+  )
+
+```
+
+Użyjmy graficznego przedstawienia, aby uzyskać inny pogląd na tę regułę. Rysunek pokazuje macierz reprezentującą wszystkie możliwe kombinacje wyników w dwóch rzutach i podkreśla komórki, które zawierają szóstkę w pierwszym lub drugim rzucie. Jeśli policzysz komórki w kolorze czerwonym, zobaczysz, że jest ich 11. To pokazuje, dlaczego reguła dodawania daje inną odpowiedź niż odpowiedź de Mérégo; gdybyśmy mieli po prostu zsumować prawdopodobieństwa dla dwóch rzutów, tak jak on to zrobił, to zaliczylibyśmy (6,6) do obu rzutów, podczas gdy tak naprawdę powinno to być policzone tylko raz.
+
+### Rozwiązanie problemu de Mérégo
+
+Blaise Pascal wykorzystał zasady prawdopodobieństwa, aby wymyślić rozwiązanie problemu de Mérégo.  Po pierwsze, zdał sobie sprawę, że obliczenie prawdopodobieństwa wystąpienia przynajmniej jednego zdarzenia z kombinacji jest trudne, natomiast obliczenie prawdopodobieństwa, że coś nie wystąpi w kilku zdarzeniach jest stosunkowo łatwe - jest to po prostu iloczyn prawdopodobieństw poszczególnych zdarzeń.  Zamiast więc obliczać prawdopodobieństwo wystąpienia co najmniej jednej szóstki w czterech rzutach, obliczył prawdopodobieństwo braku szóstek we wszystkich rzutach:
+
+$$
+
+$$
+
+Następnie wykorzystał fakt, że prawdopodobieństwo braku szóstek w czterech rolkach jest dopełnieniem przynajmniej jednej szóstki w czterech rolkach (muszą więc sumować się do jednego) i wykorzystał regułę odejmowania, aby obliczyć prawdopodobieństwo odsetka:
+
+$$
+P(co najmniej jedna szóstka w czterech walcach) = 1 - ^4=0,517
+$$
+
+Zakład de Mérégo, że wyrzuci przynajmniej jedną szóstkę w czterech rolkach ma prawdopodobieństwo większe niż 0,5, co wyjaśnia, dlaczego de Méré średnio zarabiał na tym zakładzie.
+
+Ale co z drugim zakładem de Mérégo?  Pascal zastosował tę samą sztuczkę:
+
+$$
+P(brak podwójnej szóstki w 24 walcach) = ^bigg(^frac{35}{36} ^bigg)^24}=0.509
+$$
+$$
+P(tekst co najmniej jedna podwójna szóstka w 24 rolach) = 1 - Bigg(^frac{35}{36}bigg)^24}=0.491
+$$
+
+Prawdopodobieństwo tego wyniku było nieco poniżej 0,5, co pokazuje, dlaczego de Méré średnio stracił pieniądze na tym zakładzie.
+
+## Rozkłady prawdopodobieństwa
+
+Rozkład prawdopodobieństwa *probability distribution* opisuje prawdopodobieństwo wszystkich możliwych wyników w eksperymencie. Na przykład, 20 stycznia 2018 roku koszykarz Steph Curry trafił tylko 2 z 4 rzutów wolnych w meczu z Houston Rockets. Wiemy, że ogólne prawdopodobieństwo trafienia rzutów wolnych przez Curry'ego w całym sezonie wynosiło 0,91, więc wydaje się dość mało prawdopodobne, że trafiłby tylko 50% swoich rzutów wolnych w meczu, ale dokładnie jak mało prawdopodobne?  Możemy to określić za pomocą teoretycznego rozkładu prawdopodobieństwa; w całej tej książce spotkamy się z wieloma takimi rozkładami prawdopodobieństwa, z których każdy jest odpowiedni do opisania różnych typów danych.  W tym przypadku używamy rozkładu *binomialnego*, który zapewnia sposób na obliczenie prawdopodobieństwa pewnej liczby sukcesów z pewnej liczby prób, na których występuje albo sukces, albo porażka i nic pomiędzy nimi (znanych jako "próby Bernoulliego"), biorąc pod uwagę pewne znane prawdopodobieństwo sukcesu na każdej próbie.  Rozkład ten jest zdefiniowany jako:
+
+$$
+P(k; n,p) = P(X=k) = ^binom{n}{k} p^k(1-p)^{n-k}
+$$
+
+Dotyczy to prawdopodobieństwa k sukcesów na n próbach, gdy prawdopodobieństwo sukcesu wynosi p. Być może nie znasz $binom{n}{k}$, który jest określany jako *współczynnik dwumianowy*. Współczynnik dwumianowy jest również nazywany "n-choose-k", ponieważ opisuje liczbę różnych sposobów, na jakie można wybrać k elementów z n całkowitych elementów.  Współczynnik dwumianowy oblicza się jako:
+
+$$
+\■binom{n}{k} = ■frac{n!}{k!(n-k)!}
+$$
+gdzie wykrzyknik (!) odnosi się do *czynnika* liczby:
+
+$$
+n! = \prod_{i=1}^n i = n*(n-1)*...*2*1
+$$
+
+Operator iloczynu $prod$ jest podobny do operatora sumowania $sum$, z tą różnicą, że zamiast dodawać mnoży.  W tym przypadku mnoży razem wszystkie liczby od jeden do $n$.
+
+W przykładzie z rzutami wolnymi Stepha Curry'ego:
+
+$$
+P(2;4,0.91) = \u200}{2} 0.91^2(1-0.91)^{4-2} = 0.040
+$$
+
+To pokazuje, że biorąc pod uwagę ogólny procent rzutów wolnych Curry'ego, jest bardzo mało prawdopodobne, że trafiłby tylko 2 z 4 rzutów wolnych.  Co tylko pokazuje, że mało prawdopodobne rzeczy faktycznie zdarzają się w prawdziwym świecie.
+
+### Skumulowane rozkłady prawdopodobieństwa
+
+Często chcemy wiedzieć nie tylko, jak prawdopodobna jest określona wartość, ale jak prawdopodobne jest znalezienie wartości, która jest równie skrajna lub większa od danej wartości; stanie się to bardzo ważne, gdy będziemy omawiać testowanie hipotez w rozdziale 9.  Aby odpowiedzieć na to pytanie, możemy użyć *kumulatywnego* rozkładu prawdopodobieństwa; podczas gdy standardowy rozkład prawdopodobieństwa mówi nam o prawdopodobieństwie pewnej określonej wartości, rozkład kumulatywny mówi nam o prawdopodobieństwie wartości tak dużej lub większej (lub tak małej lub mniejszej) od pewnej określonej wartości.  
+
+W przykładzie z rzutem wolnym możemy chcieć wiedzieć: Jakie jest prawdopodobieństwo, że Steph Curry trafi 2 *lub mniej* rzutów wolnych na cztery, biorąc pod uwagę jego ogólne prawdopodobieństwo rzutów wolnych wynoszące 0,91. Aby to określić, możemy po prostu użyć równania prawdopodobieństwa dwumianowego, wstawić wszystkie możliwe wartości k i dodać je razem:
+
+$$
+P(k)= P(k=2) + P(k=1) + P(k=0) = 6e^{-5} + .002 + .040 = .043  
+$$
+
+W wielu przypadkach liczba możliwych wyników byłaby zbyt duża, abyśmy mogli obliczyć skumulowane prawdopodobieństwo poprzez wyliczenie wszystkich możliwych wartości; na szczęście można je obliczyć bezpośrednio dla każdego teoretycznego rozkładu prawdopodobieństwa. Tabela pokazuje skumulowane prawdopodobieństwo każdej możliwej liczby udanych rzutów wolnych w przykładzie z góry, z której możemy zobaczyć, że prawdopodobieństwo Curry'ego lądującego 2 lub mniej rzutów wolnych na 4 próby wynosi 0,043.
+
+``{r echo=FALSE}
+# compute cumulative probability distribution for Curry's free throws
+
+curry_df <- tibble(
+  numSuccesses = seq(0, 4)
+) %>%
+  mutate(
+    Probability = dbinom(numSuccesses, size = 4, prob = 0.91),
+    CumulativeProbability = pbinom(numSuccesses, size = 4, prob = 0.91)
+  )
+
+```
+
+``{r freethrow, echo=FALSE}
+kable(curry_df, caption='Proste i skumulowane rozkłady prawdopodobieństwa dla liczby udanych rzutów wolnych Stepha Curry'ego w 4 próbach.', digits=3)
+```
+
+## Prawdopodobieństwo warunkowe {#conditional-probability}
+
+Dotychczas ograniczyliśmy się do prawdopodobieństw prostych - czyli prawdopodobieństwa pojedynczego zdarzenia lub kombinacji zdarzeń.  Często jednak chcemy określić prawdopodobieństwo jakiegoś zdarzenia, biorąc pod uwagę, że wystąpiło jakieś inne zdarzenie, które znane są jako *prawdopodobieństwa warunkowe*.    
+
+Weźmy za przykład wybory prezydenckie w USA w 2016 roku.  Istnieją dwa proste prawdopodobieństwa, których moglibyśmy użyć do opisania elektoratu. Po pierwsze, znamy prawdopodobieństwo, że wyborca w USA jest związany z partią republikańską: $p(republikanin) = 0,44$.  Znamy również prawdopodobieństwo, że wyborca oddał swój głos na Donalda Trumpa: $p(Trump wyborca)=0,46$.  Powiedzmy jednak, że chcemy wiedzieć, co następuje: Jakie jest prawdopodobieństwo, że dana osoba oddała swój głos na Donalda Trumpa, *przy założeniu, że jest Republikaninem*?  
+
+Aby obliczyć warunkowe prawdopodobieństwo A biorąc pod uwagę B (które zapisujemy jako $P(A|B)$, "prawdopodobieństwo A, biorąc pod uwagę B"), musimy znać *prawdopodobieństwo łączne* (czyli prawdopodobieństwo wystąpienia zarówno A, jak i B), jak również ogólne prawdopodobieństwo B:
+
+$$
+P(A|B) = \"P(A|B)}{P(B)}
+$$
+
+Czyli chcemy znać prawdopodobieństwo, że obie rzeczy są prawdziwe, biorąc pod uwagę, że ta, na którą się warunkuje, jest prawdziwa.  
+
+``{r conditionalProbability,echo=FALSE,fig.cap="Graficzne przedstawienie prawdopodobieństwa warunkowego, pokazujące jak prawdopodobieństwo warunkowe ogranicza naszą analizę do podzbioru danych.",fig.width=8,out.height='50%'}
+knitr::include_graphics("images/conditional_probability.png")
+
+```
+
+Może być przydatne, aby myśleć o tym graficznie. Rysunek pokazuje wykres przedstawiający jak pełna populacja wyborców dzieli się na Republikanów i Demokratów, oraz jak prawdopodobieństwo warunkowe (warunkujące partię) dalej dzieli członków każdej partii według ich głosów.
+
+## Obliczanie prawdopodobieństwa warunkowego z danych
+
+Możemy również obliczyć prawdopodobieństwo warunkowe bezpośrednio z danych. Powiedzmy, że interesuje nas następujące pytanie: Jakie jest prawdopodobieństwo, że ktoś ma cukrzycę, biorąc pod uwagę, że nie jest aktywny fizycznie? -- czyli $P(cukrzyca|nieaktywna)$. Zbiór danych NHANES zawiera dwie zmienne, które odpowiadają na dwie części tego pytania.  Pierwsza (``Cukrzyca``) pyta, czy dana osoba kiedykolwiek została poinformowana, że ma cukrzycę, a druga (``PhysActive``) rejestruje, czy dana osoba angażuje się w sport, fitness lub zajęcia rekreacyjne, które są co najmniej umiarkowanie intensywne.  Obliczmy najpierw proste prawdopodobieństwa, które przedstawia tabela ``ProsteProb``.  Z tabeli wynika, że prawdopodobieństwo, że ktoś w zbiorze danych NHANES ma cukrzycę, wynosi .1, a prawdopodobieństwo, że ktoś jest nieaktywny, wynosi .45.  
+
+``{r echo=FALSE}
+# Summarize NHANES data for diabetes and physical activity
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES_diabetes_activity <-
+  NHANES %>%
+  distinct(ID, .keep_all = TRUE) %>%
+  drop_na(PhysActive, Diabetes)
+
+diabetes_summary <- NHANES_diabetes_activity %>%
+  count(Diabetes) %>%
+  mutate(
+    prob = n / sum(n)
+  )
+
+physactive_summary <- NHANES_diabetes_activity %>% count(Physactive)
+  count(PhysActive) %>%
+  mutate(
+    prob = n / suma(n)
+  )
+
+```
+
+``{r simpleProb, echo=FALSE}
+all_summary <- data.frame(Answer=diabetes_summary$Diabetes,
+                          N_diabetes=diabetes_summary$n,
+                          P_diabetes=diabetes_summary$prob,
+                          N_PhysActive=physactive_summary$n,
+                          P_PhysActive=physactive_summary$prob)
+
+kable(all_summary, caption='Dane sumaryczne dla cukrzycy i aktywności fizycznej')
+
+```
+
+``{r jointProb, echo=FALSE}
+# oblicz wspólne prawdopodobieństwo dla cukrzycy i aktywności fizycznej
+
+NHANES_diabetes_stats_by_activity <-
+  NHANES_diabetes_activity %>%
+  count(Diabetes, PhysActive) %>%
+  mutate(
+    prob = n / sum(n)
+  )
+
+kable(NHANES_diabetes_stats_by_activity, caption='Wspólne prawdopodobieństwa dla zmiennych Diabetes i PhysActive.')
+```
+
+
+
+``{r echo=FALSE}
+# oblicz prawdopodobieństwo warunkowe p(cukrzyca|inactive)
+
+P_inactive <-
+  NHANES_diabetes_activity %>%
+  summarise(
+    mean(PhysActive == "No")
+  ) %>%
+  pull()
+
+P_diabetes_and_inactive <-.
+  NHANES_diabetes_stats_by_activity %>%
+  dplyr::filter(Diabetes == "Yes", PhysActive == "No") %>%
+  pull(prob)
+
+P_diabetes_given_inactive <-.
+  P_diabetes_and_inactive / P_inactive
+
+# P_diabetes_given_inactive
+```
+
+Aby obliczyć $P(diabetes|inactive)$ musielibyśmy również znać łączne prawdopodobieństwo bycia diabetykiem *i* nieaktywnym, oprócz prostych prawdopodobieństw każdego z nich.  Są one pokazane w tabeli \u0026apos; (tab:jointProb).
+Na podstawie tych wspólnych prawdopodobieństw możemy obliczyć $P(diabetes|inactive)$.  Jednym ze sposobów, aby to zrobić w programie komputerowym, jest najpierw określenie, czy zmienna PhysActive była równa "Nie" dla każdego osobnika, a następnie wzięcie średniej z tych wartości prawdy.  Ponieważ wartości TRUE/FALSE są traktowane przez większość języków programowania (w tym R i Python) jako odpowiednio 1/0, pozwala to nam łatwo określić prawdopodobieństwo prostego zdarzenia, po prostu biorąc średnią zmiennej logicznej reprezentującej jej wartość prawdy. Następnie używamy tej wartości do obliczenia prawdopodobieństwa warunkowego, gdzie stwierdzamy, że prawdopodobieństwo tego, że ktoś ma cukrzycę, biorąc pod uwagę, że jest nieaktywny fizycznie, wynosi `r I(sprintf('%0.3f',P_diabetes_given_inactive))`.
+
+## Niezależność
+
+Termin "niezależny" ma bardzo specyficzne znaczenie w statystyce, które różni się nieco od powszechnego użycia tego terminu. Statystyczna niezależność między dwiema zmiennymi oznacza, że znając wartość jednej zmiennej, nie mówimy nic o wartości drugiej.  Można to wyrazić jako:
+
+$$
+P(A|B) = P(A)
+$$
+
+To znaczy, że prawdopodobieństwo A biorąc pod uwagę pewną wartość B jest po prostu takie samo jak ogólne prawdopodobieństwo A. Patrząc na to w ten sposób, widzimy, że wiele przypadków tego, co nazwalibyśmy "niezależnością" w prawdziwym świecie, nie jest w rzeczywistości statystycznie niezależne.  Na przykład obecnie mała grupa obywateli Kalifornii stara się o utworzenie nowego niepodległego stanu o nazwie Jefferson, który obejmowałby szereg hrabstw w północnej Kalifornii i Oregonie. Gdyby tak się stało, to prawdopodobieństwo, że obecny mieszkaniec Kalifornii będzie teraz mieszkał w stanie Jefferson, wynosiłoby $P(Τext{Jeffersonian})=0,014$, natomiast prawdopodobieństwo, że pozostanie mieszkańcem Kalifornii, wynosiłoby $P(Τext{Californian})=0,986$.  Nowe stany mogłyby być politycznie niezależne, ale *nie* byłyby statystycznie niezależne, ponieważ jeśli wiemy, że dana osoba jest Jeffersonianinem, to możemy być pewni, że *nie* jest Kalifornijczykiem!  To znaczy, podczas gdy niezależność w języku potocznym często odnosi się do zbiorów, które się wykluczają, statystyczna niezależność odnosi się do przypadku, w którym nie można przewidzieć niczego o jednej zmiennej na podstawie wartości innej zmiennej.  Na przykład, znając kolor włosów danej osoby, raczej nie dowiemy się, czy woli ona lody czekoladowe czy truskawkowe.  
+
+Przyjrzyjmy się innemu przykładowi, wykorzystując dane NHANES: Czy zdrowie fizyczne i zdrowie psychiczne są od siebie niezależne?  NHANES zawiera dwa istotne pytania: *PhysActive*, które pyta, czy dana osoba jest aktywna fizycznie, oraz *DaysMentHlthBad*, które pyta, ile dni z ostatnich 30, w których dana osoba doświadczyła złego stanu zdrowia psychicznego.  Uznajmy, że każdy, kto miał więcej niż 7 dni złego stanu zdrowia psychicznego w ostatnim miesiącu, jest w złym stanie zdrowia psychicznego.  Na tej podstawie możemy zdefiniować nową zmienną o nazwie *badMentalHealth* jako zmienną logiczną mówiącą, czy każda osoba miała więcej niż 7 dni złego stanu zdrowia psychicznego czy nie.  Możemy najpierw podsumować dane, aby pokazać, ile osób należy do każdej kombinacji tych dwóch zmiennych (pokazane w tabeli \N(tab:mhCounts)), a następnie podzielić przez całkowitą liczbę obserwacji, aby utworzyć tabelę proporcji (pokazane w tabeli \n(tab:mhProps)):
+
+
+`{r mhCounts, echo=FALSE, message=FALSE}
+# oblicz prawdopodobieństwa dla zdrowia psychicznego i aktywności fizycznej
+NHANES_adult <-
+  NHANES %>%
+  dplyr::filter(
+    Wiek >= 18,
+    !is.na(PhysActive),
+    !is.na(DaysMentHlthBad)
+  ) %>%
+  mutate(badMentalHealth = DaysMentHlthBad > 7,
+         badMentalHealth = case_when(
+      badMentalHealth == TRUE ~ "Złe zdrowie psychiczne",
+      badMentalHealth == FALSE ~ "Dobre zdrowie psychiczne"
+    ))
+
+NHANES_mentalhealth_by_physactive_counts <- NHANES_adult %>% tabyl(PhysActive, badMentalHealth) %>% adorn_totals(c("row", "col"))
+
+kable(NHANES_mentalhealth_by_physactive_counts, caption="Podsumowanie danych o częstości bezwzględnej dla zdrowia psychicznego i aktywności fizycznej.")
+```
+
+
+
+``{r mhProps, echo=FALSE, message=FALSE}
+total_n <- NHANES_mentalhealth_by_physactive_counts[3,4]
+# wydaje się, że nie ma prostego sposobu, aby to zrobić w R
+NHANES_mentalhealth_by_physactive_p <- NHANES_mentalhealth_by_physactive_counts[,2:4]/NHANES_mentalhealth_by_physactive_counts[3,4]
+NHANES_mentalhealth_by_physactive_p <- NHANES_mentalhealth_by_physactive_p %>%
+  mutate(PhysActive=NHANES_mentalhealth_by_physactive_counts[,1])
+NHANES_mentalhealth_by_physactive_p <- NHANES_mentalhealth_by_physactive_p[, c('PhysActive', "Bad Mental Health", "Good Mental Health", "Total" )]
+kable(NHANES_mentalhealth_by_physactive_p, caption='Podsumowanie danych o częstości względnej dla zdrowia psychicznego i aktywności fizycznej.')
+```
+
+To pokazuje nam proporcję wszystkich obserwacji, które mieszczą się w każdej komórce. Jednak to, co chcemy tutaj wiedzieć, to warunkowe prawdopodobieństwo złego stanu zdrowia psychicznego w zależności od tego, czy ktoś jest aktywny fizycznie, czy nie. Aby to obliczyć, dzielimy każdą grupę aktywności fizycznej przez jej całkowitą liczbę obserwacji, tak aby każdy wiersz sumował się do jednego (pokazane w tabeli \@ref(tab:condProb)). Widzimy tu warunkowe prawdopodobieństwo złego lub dobrego stanu zdrowia psychicznego dla każdej grupy aktywności fizycznej (w dwóch górnych rzędach) wraz z ogólnym prawdopodobieństwem dobrego lub złego stanu zdrowia psychicznego w trzecim rzędzie.  Aby ustalić, czy zdrowie psychiczne i aktywność fizyczna są niezależne, porównalibyśmy proste prawdopodobieństwo złego zdrowia psychicznego (w trzecim rzędzie) z warunkowym prawdopodobieństwem złego zdrowia psychicznego, biorąc pod uwagę, że ktoś jest aktywny fizycznie (w drugim rzędzie).
+
+
+``{r condProb, echo=FALSE, message=FALSE}
+total_n <- NHANES_mentalhealth_by_physactive_counts[3,4]
+# wydaje się, że nie ma prostego sposobu, aby to zrobić w R
+NHANES_mentalhealth_by_physactive_condp <- NHANES_mentalhealth_by_physactive_counts
+
+for (i in 1:3){
+  NHANES_mentalhealth_by_physactive_condp[i, 2:4] <- NHANES_mentalhealth_by_physactive_condp[i, 2:4] / NHANES_mentalhealth_by_physactive_condp[i, 4]
+
+}
+
+kable(NHANES_mentalhealth_by_physactive_condp, caption='Zestawienie warunkowych prawdopodobieństw dla zdrowia psychicznego z uwzględnieniem aktywności fizycznej.')
+```
+
+
+
+Ogólne prawdopodobieństwo złego stanu zdrowia psychicznego $P(\u200})$ wynosi `r I(NHANES_mentalhealth_by_physactive_condp[3, 2])`, natomiast prawdopodobieństwo warunkowe $P(\u200}złe zdrowie psychiczne|aktywność fizyczna})$ wynosi `r I(NHANES_mentalhealth_by_physactive_condp[2, 2])`.  Wydaje się więc, że prawdopodobieństwo warunkowe jest nieco mniejsze niż prawdopodobieństwo ogólne, co sugeruje, że nie są one niezależne, choć nie możemy tego wiedzieć na pewno, patrząc tylko na liczby, ponieważ te liczby mogą być inne z powodu losowej zmienności w naszej próbie. W dalszej części książki omówimy narzędzia statystyczne, które pozwolą nam bezpośrednio sprawdzić, czy dwie zmienne są niezależne.
+
+## Odwracanie prawdopodobieństwa warunkowego: Reguła Bayesa {#bayestheorem}
+
+W wielu przypadkach znamy $P(A|B)$, ale tak naprawdę chcemy znać $P(B|A)$. Powszechnie występuje to w medycznych badaniach przesiewowych, gdzie znamy $P(\u2009|pozytywny wynik testu|choroba})$, ale to, co chcemy wiedzieć, to $P(\u2009|pozytywny wynik testu})$.  Na przykład niektórzy lekarze zalecają, aby mężczyźni w wieku powyżej 50 lat poddawali się badaniom przesiewowym przy użyciu testu zwanego antygenem swoistym dla prostaty (PSA) w celu zbadania ewentualnego raka prostaty.  Zanim test zostanie zatwierdzony do stosowania w praktyce medycznej, producent musi przetestować dwa aspekty działania testu. Po pierwsze, musi wykazać, jak *czuły* jest test - to znaczy, jak prawdopodobne jest wykrycie choroby, gdy jest ona obecna: $text{sensitivity} = P(\test pozytywny|choroba})$.  Muszą również wykazać, jak bardzo *specyficzny* jest to test: to znaczy, jak prawdopodobne jest, że da negatywny wynik, gdy nie występuje choroba: $text{specyficzność} = P(™text{negative test|no disease})$.  Dla testu PSA wiemy, że czułość wynosi około 80%, a swoistość około 70%.  Jednak te wartości nie odpowiadają na pytanie, na które lekarz chce odpowiedzieć w odniesieniu do konkretnego pacjenta: jakie jest prawdopodobieństwo, że rzeczywiście ma on raka, biorąc pod uwagę, że wynik testu jest pozytywny? Wymaga to odwrócenia prawdopodobieństwa warunkowego, które określa czułość: zamiast $P(test pozytywny| choroba)$ chcemy wiedzieć $P(choroba|test pozytywny)$.
+
+Aby odwrócić prawdopodobieństwo warunkowe, możemy użyć *zasady Bayesa*:
+
+$$
+P(B|A) = ˆfrac{P(A|B)*P(B)}{P(A)}
+$$
+
+Reguła Bayesa jest dość łatwa do wyprowadzenia na podstawie reguł prawdopodobieństwa, które poznaliśmy wcześniej w rozdziale (wyprowadzenie znajduje się w Dodatku).  
+
+Jeśli mamy tylko dwa wyniki, możemy wyrazić regułę Bayesa w nieco bardziej przejrzysty sposób, używając reguły sumy do ponownego zdefiniowania $P(A)$:
+
+$$
+P(A) = P(A|B)*P(B) + P(A|neg B)*P(ą B)
+$$
+
+Korzystając z tego, możemy przedefiniować regułę Bayesa:
+
+$$
+P(B|A) = \NP(A|B)*P(B)}{P(A|B)*P(B) + P(A|neg B)*P(\NB)}
+$$
+
+Możemy wstawić odpowiednie liczby do tego równania, aby określić prawdopodobieństwo, że osoba z dodatnim wynikiem PSA rzeczywiście ma raka - należy jednak pamiętać, że aby to zrobić, musimy również znać ogólne prawdopodobieństwo wystąpienia raka u tej osoby, które często nazywamy *podstawą*. Weźmy 60-letniego mężczyznę, dla którego prawdopodobieństwo wystąpienia raka prostaty w ciągu najbliższych 10 lat wynosi $P(rak)=0,058$.  Wykorzystując wartości czułości i swoistości, które przedstawiliśmy powyżej, możemy obliczyć prawdopodobieństwo wystąpienia raka u danej osoby przy pozytywnym wyniku testu:
+
+$$
+P(rak|test}) = \frac{P(test|raka})*P(rak|test})}{P(test|raka})*P(rak|test})+ P(test|test|test|test})*P(rak|test})*P(rak|test})}
+$$
+$$
+= Ąfrac{0,8*0,058}{0,8*0,058 +0,3*0,942 } = 0.14
+$$
+To dość mało -- czy uważasz to za zaskakujące? Wiele osób tak uważa, a w rzeczywistości istnieje znaczna literatura psychologiczna pokazująca, że ludzie systematycznie zaniedbują *podstawowe wskaźniki* (tj. ogólną częstość występowania) w swoich osądach.  
+
+## Uczenie się z danych
+
+Innym sposobem myślenia o regule Bayesa jest sposób aktualizowania naszych przekonań na podstawie danych - czyli uczenie się o świecie za pomocą danych.  Spójrzmy ponownie na regułę Bayesa:
+
+$$
+P(B|A) = \frac{P(A|B)*P(B)}{P(A)}
+$$
+
+Różne części reguły Bayesa mają specyficzne nazwy, które odnoszą się do ich roli w użyciu reguły Bayesa do aktualizacji naszych przekonań. Zaczynamy z początkowym przypuszczeniem dotyczącym prawdopodobieństwa B ($P(B)$), które nazywamy *prior* prawdopodobieństwem.  W przykładzie PSA użyliśmy wskaźnika bazowego jako naszego priorytetu, ponieważ był on naszym najlepszym przypuszczeniem co do szansy wystąpienia raka u danej osoby, zanim poznaliśmy wynik testu.  Następnie zbieramy pewne dane, którymi w naszym przykładzie był wynik testu.  Stopień, w jakim dane A są zgodne z wynikiem B jest dany przez $P(A|B)$, co nazywamy *prawdopodobieństwem*.  Można o tym myśleć jako o tym, jak prawdopodobne są dane, biorąc pod uwagę, że testowana hipoteza jest prawdziwa.  W naszym przykładzie testowana hipoteza dotyczyła tego, czy dana osoba ma raka, a prawdopodobieństwo opierało się na naszej wiedzy o czułości testu (czyli prawdopodobieństwie pozytywnego wyniku testu przy obecności raka). Mianownik ($P(A)$) jest określany jako *marginalne prawdopodobieństwo*, ponieważ wyraża ogólne prawdopodobieństwo danych, uśrednione dla wszystkich możliwych wartości B (które w naszym przykładzie były obecne i nieobecne).
+Wynik po lewej stronie ($P(B|A)$) jest określany jako *posterior* - ponieważ jest to wynik końcowy obliczeń.  
+
+Istnieje inny sposób zapisu reguły Bayesa, który czyni to nieco bardziej zrozumiałym:
+
+$$
+P(B|A) = \u0026.pl {P(A|B)}{P(A)}*P(B)
+$$
+
+Część po lewej stronie ($frac{P(A|B)}{P(A)}$) mówi nam o ile bardziej lub mniej prawdopodobne są dane A biorąc pod uwagę B, w stosunku do ogólnego (marginalnego) prawdopodobieństwa danych, podczas gdy część po prawej stronie ($P(B)$) mówi nam, jak prawdopodobne było B, zanim wiedzieliśmy cokolwiek o danych.  W ten sposób staje się jasne, że rolą twierdzenia Bayesa jest aktualizacja naszej wcześniejszej wiedzy w oparciu o stopień, w jakim dane są bardziej prawdopodobne biorąc pod uwagę B niż byłyby w całości.  Jeśli hipoteza jest bardziej prawdopodobna, biorąc pod uwagę dane, niż byłaby w ogóle, to zwiększamy naszą wiarę w hipotezę; jeśli jest mniej prawdopodobna, biorąc pod uwagę dane, to zmniejszamy naszą wiarę.
+
+## Kursy i współczynniki szans
+
+Wynik w ostatniej sekcji pokazał, że prawdopodobieństwo, że dana osoba ma raka na podstawie pozytywnego wyniku testu PSA, jest nadal dość niskie, mimo że jest ponad dwukrotnie większe niż przed poznaniem wyniku testu. Często chcielibyśmy bardziej bezpośrednio określić ilościowo relację między prawdopodobieństwami, co możemy zrobić przekształcając je w *odds*, które wyrażają względne prawdopodobieństwo, że coś się wydarzy lub nie:  
+$$
+\¨odds of A} = ¨frac{P(A)}{P(¨neg A)}
+$$
+
+W naszym przykładzie PSA, szanse na wystąpienie raka (biorąc pod uwagę pozytywny test) wynoszą:
+
+$$
+\prawdopodobieństwo zachorowania na raka} = \frac{P(rak})}{P(rak negatywny})} = \frac{0,14}{1 - 0,14} = 0,16
+$$
+
+To mówi nam, że szanse na posiadanie raka są dość niskie, nawet jeśli test był pozytywny.  Dla porównania, szanse na wyrzucenie 6 w pojedynczym rzucie kostką wynoszą:
+
+$$
+\prawdopodobieństwo 6 = 0,2
+$$
+
+Na marginesie, jest to powód, dla którego wielu badaczy medycznych staje się coraz bardziej ostrożnych w stosowaniu powszechnych testów przesiewowych dla stosunkowo rzadkich schorzeń; większość pozytywnych wyników okaże się fałszywie pozytywna, co spowoduje niepotrzebne badania kontrolne z możliwymi komplikacjami, nie wspominając o dodatkowym stresie dla pacjenta.
+
+Możemy również użyć szans do porównania różnych prawdopodobieństw, poprzez obliczenie czegoś, co nazywa się *odds ratio* - co jest dokładnie tym, na co wygląda.  Na przykład, powiedzmy, że chcemy wiedzieć, jak bardzo pozytywny wynik testu zwiększa prawdopodobieństwo wystąpienia raka u danej osoby. Możemy najpierw obliczyć *prior odds* - czyli szanse zanim dowiedzieliśmy się, że dana osoba miała pozytywny test.  Obliczamy je przy użyciu współczynnika podstawowego:
+
+$$
+\Prior odds} = \frac{P(rak})}{P(rak negatywny})} = \frac{0,058}{1 - 0,058} = 0,061
+$$
+
+Możemy je następnie porównać z szansami potomnymi, które są obliczane z wykorzystaniem prawdopodobieństwa potomnego:
+
+$$
+
+$$
+
+To mówi nam, że szanse na zachorowanie na raka są zwiększone 2,62 razy, biorąc pod uwagę pozytywny wynik testu.  Współczynnik szans jest przykładem tego, co później nazwiemy *wielkością efektu*, czyli sposobem ilościowego określenia, jak stosunkowo duży jest dany efekt statystyczny.
+
+## Co oznaczają prawdopodobieństwa?
+
+Może Cię uderzyć, że to trochę dziwne mówić o prawdopodobieństwie, że dana osoba ma raka w zależności od wyniku testu; w końcu dana osoba albo ma raka albo nie.  Historycznie, były dwa różne sposoby, że prawdopodobieństwo było interpretowane.  Pierwszy (znany jako interpretacja *częstotliwościowa*) interpretuje prawdopodobieństwo w kategoriach częstotliwości długookresowych.  Na przykład, w przypadku rzutu monetą, prawdopodobieństwo odzwierciedla względną częstotliwość występowania główek w długim okresie czasu po dużej liczbie rzutów.  Podczas gdy ta interpretacja może mieć sens w przypadku zdarzeń, które mogą być powtarzane wiele razy, jak rzut monetą, ma ona mniej sensu w przypadku zdarzeń, które zdarzają się tylko raz, jak życie pojedynczej osoby lub konkretne wybory prezydenckie; a jak słynnie powiedział ekonomista John Maynard Keynes: "W długim okresie wszyscy jesteśmy martwi".
+
+Inna interpretacja prawdopodobieĔstwa (znana jako interpretacja *Bayesian*) jest jako stopień wiary w okreĞloną propozycjĊ. Jeśli zapytałbym Cię "Jak prawdopodobne jest, że USA powrócą na Księżyc do 2040 roku", możesz udzielić odpowiedzi na to pytanie w oparciu o swoją wiedzę i przekonania, nawet jeśli nie ma odpowiednich częstotliwości, które pozwoliłyby obliczyć prawdopodobieństwo częstościowe.  Jednym ze sposobów, w jaki często ujmujemy subiektywne prawdopodobieĔstwo, jest w kategoriach czyjejĞ gotowoĞci do zaakceptowania okreĞlonej gry.  Na przykład, jeĞli uwaĪasz, Īe prawdopodobieĔstwo wylądowania USA na KsięĪycu do 2040 roku wynosi 0,1 (tj. prawdopodobieĔstwo 9 do 1), to oznacza, Īe powinieneĞ byü skłonny zaakceptowaü ryzyko, które opáaciáoby siĊ z prawdopodobieĔstwem wiĊkszym niĪ 9 do 1, jeĞli zdarzenie nastąpi.  
+
+Jak zobaczymy, te dwie różne definicje prawdopodobieństwa są bardzo istotne dla dwóch różnych sposobów myślenia statystyków o testowaniu hipotez statystycznych, z którymi spotkamy się w późniejszych rozdziałach.
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Opisać przestrzeń próby dla wybranego eksperymentu losowego.
+* Obliczyć częstość względną i prawdopodobieństwo empiryczne dla danego zbioru zdarzeń
+* Obliczać prawdopodobieństwa zdarzeń pojedynczych, zdarzeń komplementarnych oraz związków i przecięć zbiorów zdarzeń.
+* Opisać prawo wielkich liczb.
+* Opisać różnicę między prawdopodobieństwem a prawdopodobieństwem warunkowym
+* Opisać pojęcie niezależności statystycznej
+* Wykorzystać twierdzenie Bayesa do obliczenia odwrotności prawdopodobieństwa warunkowego.
+
+
+
+## Sugerowane lektury
+
+- *The Drunkard's Walk: Jak losowość rządzi naszym życiem" Leonarda Mlodinowa.
+- Dziesięć wielkich pomysłów na temat szansy*, autorstwa Persi Diaconis i Brian Skyrms
+
+## Dodatek
+
+### Pochodna reguły Bayesa
+
+Najpierw przypomnij sobie regułę obliczania prawdopodobieństwa warunkowego:
+
+$$
+P(A|B) = ˆfrac{P(A|B)}{P(B)}
+$$
+
+Możemy to przearanżować, aby otrzymać wzór na obliczenie wspólnego prawdopodobieństwa z wykorzystaniem warunkowego:
+
+$$
+P(A) = P(A|B) * P(B)
+$$
+
+Korzystając z tego możemy obliczyć odwrotne prawdopodobieństwo:
+
+$$
+P(B|A) = \NP(A \NB)}{P(A)} = \NP(A|B)*P(B)}{P(A)}
+$$

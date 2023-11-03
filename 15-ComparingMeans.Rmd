@@ -27,11 +27,11 @@ set.seed(123456) # set random seed to exactly replicate results
 library(NHANES)
 
 # drop duplicated IDs within the NHANES dataset
-NHANES <- 
-  NHANES %>% 
+NHANES <-
+  NHANES %>%
   dplyr::distinct(ID,.keep_all=TRUE)
 
-NHANES_adult <- 
+NHANES_adult <-
   NHANES %>%
   subset(Age>=18) %>%
   drop_na(BMI)
@@ -65,7 +65,7 @@ bt <- binom.test(npos, nrow(NHANES_sample), alternative='greater')
 bt
 ```
 
-Here we see that the proportion of individuals with positive signs is not very surprising under the null hypothesis of $p \le 0.5$, which should not surprise us given that the observed value is actually less than $0.5$. 
+Here we see that the proportion of individuals with positive signs is not very surprising under the null hypothesis of $p \le 0.5$, which should not surprise us given that the observed value is actually less than $0.5$.
 
 We can also ask this question using Student's t-test, which you have already encountered earlier in the book.  We will refer to the mean as $\bar{X}$ and the hypothesized population mean as $\mu$.  Then, the t test for a single mean is:
 
@@ -112,10 +112,10 @@ NHANES_sample <-
     TVHrsNum = recode( #recode character values into numerical values
       TVHrsDay,
       "More_4_hr" = 5,
-      "4_hr" = 4, 
+      "4_hr" = 4,
       "2_hr" = 2,
-      "1_hr" = 1, 
-      "3_hr" = 3, 
+      "1_hr" = 1,
+      "3_hr" = 3,
       "0_to_1_hr" = 0.5,
       "0_hrs" = 0
     )
@@ -203,8 +203,8 @@ As we discussed in the chapter on Bayesian analysis, Bayes factors provide a way
 # compute bayes factor for group comparison
 # In this case, we want to specifically test against the null hypothesis that the difference is greater than zero - because the difference is computed by the function between the first group ('No') and the second group ('Yes'). Thus, we specify a "null interval" going from zero to infinity, which means that the alternative is less than zero.
 bf <- ttestBF(
-  formula = TVHrsNum ~ RegularMarij, 
-  data = NHANES_sample, 
+  formula = TVHrsNum ~ RegularMarij,
+  data = NHANES_sample,
   nullInterval = c(0, Inf)
 )
 bf
@@ -214,24 +214,24 @@ Because of the way that the data are organized, the second line shows us the rel
 
 ## Comparing paired observations {#paired-ttests}
 
-In experimental research, we often use *within-subjects* designs, in which we compare the same person on multiple measurements.  The measurements that come from this kind of design are often referred to as *repeated measures*. For example, in the NHANES dataset blood pressure was measured three times. Let's say that we are interested in testing whether there is a difference in mean systolic blood pressure between the first and second measurement across individuals in our sample (Figure  \@ref(fig:BPfig)). 
+In experimental research, we often use *within-subjects* designs, in which we compare the same person on multiple measurements.  The measurements that come from this kind of design are often referred to as *repeated measures*. For example, in the NHANES dataset blood pressure was measured three times. Let's say that we are interested in testing whether there is a difference in mean systolic blood pressure between the first and second measurement across individuals in our sample (Figure  \@ref(fig:BPfig)).
 
 
 ```{r BPfig, echo=FALSE,fig.cap='Left: Violin plot of systolic blood pressure on first and second recording, from NHANES. Right: Same violin plot with lines connecting the two data points for each individual.',fig.width=8,fig.height=4,out.height='50%'}
 
 set.seed(12345678)
 
-NHANES_sample <- 
-  NHANES %>% 
+NHANES_sample <-
+  NHANES %>%
   dplyr::filter(Age>17 & !is.na(BPSys2) & !is.na(BPSys1)) %>%
   dplyr::select(BPSys1,BPSys2,ID) %>%
   sample_n(200)
 
-NHANES_sample_tidy <- 
+NHANES_sample_tidy <-
   NHANES_sample %>%
   gather(timepoint,BPsys,-ID)
 
-NHANES_sample <- 
+NHANES_sample <-
   NHANES_sample %>%
   mutate(
     diff=BPSys1-BPSys2,
@@ -239,11 +239,11 @@ NHANES_sample <-
     meanBP=(BPSys1+BPSys2)/2
   )
 
-p1 <- ggplot(NHANES_sample_tidy,aes(timepoint,BPsys)) + 
+p1 <- ggplot(NHANES_sample_tidy,aes(timepoint,BPsys)) +
   geom_violin() +
   scale_x_discrete(
     labels = c("Time 1", "Time 2"),
-  ) 
+  )
 p2 <- p1 +geom_line(aes(group=ID))
 
 plot_grid(p1, p2)
@@ -255,7 +255,7 @@ We see that there does not seem to be much of a difference in mean blood pressur
 t.test(
   BPsys ~ timepoint,
   data = NHANES_sample_tidy,
-  paired = FALSE, 
+  paired = FALSE,
   var.equal = TRUE
 )
 ```
@@ -266,7 +266,7 @@ In this analysis, what we really care about is whether the blood pressure for ea
 
 ```{r BPDiffHist,echo=FALSE,fig.cap="Histogram of difference scores between first and second BP measurement. The vertical line represents the mean difference in the sample.",fig.width=4,fig.height=4,out.height='50%'}
 
-ggplot(NHANES_sample,aes(diff)) + 
+ggplot(NHANES_sample,aes(diff)) +
   geom_histogram(bins=30) +
   geom_vline(xintercept = mean(NHANES_sample$diff),color='blue')
 
@@ -302,7 +302,7 @@ ttestBF(x = NHANES_sample$BPSys1, y = NHANES_sample$BPSys2, paired = TRUE)
 
 ```
 
-The observed Bayes factor of 2.97 tells us that although the effect was significant in the paired t-test, it actually provides very weak evidence in favor of the alternative hypothesis. 
+The observed Bayes factor of 2.97 tells us that although the effect was significant in the paired t-test, it actually provides very weak evidence in favor of the alternative hypothesis.
 
 The paired t-test can also be defined in terms of a linear model; see the Appendix for more details on this.
 
@@ -322,7 +322,7 @@ df <- data.frame(
   group=as.factor(c(rep('placebo',nPerGroup),
                     rep('drug1',nPerGroup),
                     rep('drug2',nPerGroup))),
-  sysBP=NA) 
+  sysBP=NA)
 
 df$sysBP[df$group=='placebo'] <- rnorm(nPerGroup,mean=meanSysBP,sd=noiseSD)
 df$sysBP[df$group=='drug1'] <- rnorm(nPerGroup,mean=meanSysBP-noiseSD*effectSize,sd=noiseSD)
@@ -348,7 +348,7 @@ $$
 With ANOVA, we want to test whether the variance accounted for by the model is greater than what we would expect by chance, under the null hypothesis of no differences between means.  Whereas for the t distribution the expected value is zero under the null hypothesis, that's not the case here, since sums of squares are always positive numbers.  Fortunately, there is another theoretical distribution that describes how ratios of sums of squares are distributed under the null hypothesis: The *F* distribution (see figure \@ref(fig:FDist)). This distribution has two degrees of freedom, which correspond to the degrees of freedom for the numerator (which in this case is the model), and the denominator (which in this case is the error).
 
 ```{r FDist, echo=FALSE,fig.cap='F distributions under the null hypothesis, for different values of degrees of freedom.',fig.width=4,fig.height=4,out.height='50%'}
-fdata <- 
+fdata <-
   data.frame(x=seq(0.1,10,.1)) %>%
   mutate(
     f_1_1=df(x,1,1),
@@ -362,7 +362,7 @@ ggplot(fdata,aes(x,f_1_1)) +
   geom_line(aes(x,f_10_50),linetype='dashed') +
   labs(y = "Density", x = "F values")
 
-  
+
 ```
 
 
@@ -416,7 +416,7 @@ We can also define the paired t-test in terms of a general linear model.  To do 
 ```{r,messages=FALSE}
 # compute mixed model for paired test
 
-lmrResult <- lmer(BPsys ~ timepoint + (1 | ID), 
+lmrResult <- lmer(BPsys ~ timepoint + (1 | ID),
                   data = NHANES_sample_tidy)
 summary(lmrResult)
 ```

@@ -1,0 +1,754 @@
+---
+output:
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+---
+# The General Linear Model {#the-general-linear-model}
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(fivethirtyeight)
+library(caret)
+library(MASS)
+library(cowplot)
+
+library(knitr)
+
+set.seed(123456) # set random seed to exactly replicate results
+opts_chunk$set(tidy.opts=list(width.cutoff=80))
+options(tibble.width = 60)
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Weight) %>%
+  subset(Age>=18)
+
+
+```
+
+Pamiętaj, że na początku książki opisaliśmy podstawowy model statystyki:
+
+$$
+dane = model + błąd
+$$
+gdzie naszym ogólnym celem jest znalezienie modelu, który minimalizuje błąd, z zastrzeżeniem pewnych innych ograniczeń (takich jak utrzymanie modelu w miarę prostego, abyśmy mogli uogólniać poza nasz konkretny zbiór danych). W tym rozdziale skupimy się na konkretnej implementacji tego podejścia, które znane jest jako *ogólny model liniowy* (lub GLM).   Z ogólnym modelem liniowym mieliśmy już do czynienia we wcześniejszym rozdziale "Dopasowanie modeli do danych", gdzie modelowaliśmy wzrost w zbiorze danych NHANES jako funkcję wieku; tutaj przedstawimy bardziej ogólne wprowadzenie do koncepcji GLM i jej wielu zastosowań.  Prawie każdy model używany w statystyce może być ujęty w kategoriach ogólnego modelu liniowego lub jego rozszerzenia.
+
+Zanim omówimy ogólny model liniowy, zdefiniujmy najpierw dwa pojęcia, które będą ważne dla naszej dyskusji:
+
+- *zmienna zależna*: Jest to zmienna wynikowa, którą nasz model ma na celu wyjaśnić (zwykle określana jako *Y*)
+- *zmienna niezależna*: Jest to zmienna, którą chcemy wykorzystać w celu wyjaśnienia zmiennej zależnej (zwykle określanej jako *X*).  
+
+Może istnieć wiele zmiennych niezależnych, ale w tym kursie skupimy się głównie na sytuacjach, w których w naszej analizie występuje tylko jedna zmienna zależna.
+
+Ogólny model liniowy to taki, w którym model dla zmiennej zależnej składa się z *liniowej kombinacji* zmiennych niezależnych, z których każda jest pomnożona przez wagę (która często jest określana grecką literą beta - $beta$), która określa względny wkład tej zmiennej niezależnej do predykcji modelu.
+
+``{r echo=FALSE}
+# utwórz symulowane dane dla przykładu
+set.seed(12345)
+
+# liczba punktów, o które posiadanie wcześniejszej klasy zwiększa oceny
+betas <- c(6, 5)
+
+df <-
+  tibble(
+    studyTime = c(2, 3, 5, 6, 8, 10, 12) / 3,
+    priorClass = c(0, 1, 1, 0, 1, 0, 1, 0)
+  ) %>%
+  mutate(
+    grade =
+      studyTime * betas[1] +
+      priorClass * betas[2] +
+      round(rnorm(8, mean = 70, sd = 5))
+  )
+```
+
+``{r StudytimeGrades, echo=FALSE,fig.cap='Relation between study time and grades',fig.width=3,fig.height=3,out.height='50%'}
+p <- ggplot(df,aes(studyTime,grade)) +
+  geom_point(size=3) +
+  xlab('Study Time (hours)') +
+  ylab('Ocena (procent)') +
+  xlim(0,5) +
+  ylim(70,100)
+
+print(p)
+```
+
+
+Jako przykład wygenerujmy kilka symulowanych danych dla zależności pomiędzy czasem nauki a ocenami z egzaminów (patrz rysunek \u0026apos; fig:StudytimeGrades). Biorąc pod uwagę te dane, moglibyśmy chcieć zaangażować się w każdą z trzech podstawowych czynności statystyki:
+
+- *Opisać*: Jak silny jest związek między oceną a czasem nauki?
+- *Decyzja*: Czy istnieje statystycznie istotny związek między oceną a czasem nauki?
+- *Przewiduj*: Biorąc pod uwagę określoną ilość czasu poświęconego na naukę, jakiej oceny możemy się spodziewać?
+
+W poprzednim rozdziale dowiedzieliśmy się, jak opisać związek między dwiema zmiennymi za pomocą współczynnika korelacji.  Użyjmy naszego oprogramowania statystycznego, aby obliczyć tę zależność dla tych danych i przetestować, czy korelacja jest znacząco różna od zera:
+
+``{r echo=FALSE}
+# oblicz korelację pomiędzy ocenami a czasem nauki
+corTestResult <- cor.test(df$grade, df$studyTime)
+corTestResult
+```
+
+Korelacja jest dość wysoka, ale zauważ, że przedział ufności wokół oszacowania jest bardzo szeroki, obejmując prawie cały zakres od zera do jednego, co wynika częściowo z małej wielkości próby.  
+
+## Regresja liniowa {#linear-regression}
+
+Ogólny model liniowy możemy wykorzystać do opisania związku między dwiema zmiennymi i do rozstrzygnięcia, czy związek ten jest statystycznie istotny; ponadto model ten pozwala nam przewidzieć wartość zmiennej zależnej przy pewnych nowych wartościach zmiennej niezależnej (zmiennych niezależnych).  Co najważniejsze, ogólny model liniowy pozwoli nam budować modele uwzględniające wiele zmiennych niezależnych, podczas gdy współczynnik korelacji może opisywać jedynie związek między dwiema pojedynczymi zmiennymi.
+
+Specyficzna wersja GLM, którą wykorzystujemy do tego celu, określana jest jako *regresja liniowa*.  Termin *regresja* został stworzony przez Francisa Galtona, który zauważył, że gdy porównywał rodziców i ich dzieci pod względem jakiejś cechy (np. wzrostu), dzieci skrajnych rodziców (tj. bardzo wysokich lub bardzo niskich) generalnie wypadały bliżej średniej niż ich rodzice.  Jest to niezwykle ważna kwestia, do której wracamy poniżej.
+
+Najprostszą wersję modelu regresji liniowej (z jedną zmienną niezależną) można wyrazić następująco:
+
+$$
+y = x * βeta_x + βeta_0 + epsilon
+$$
+Wartość $beta_x$ mówi nam o tym, jak bardzo spodziewalibyśmy się, że y zmieni się przy jednokrotnej zmianie $x$.  Intercept $beta_0$ jest ogólnym przesunięciem, które mówi nam, jakiej wartości spodziewalibyśmy się po y, gdy $x=0$; być może pamiętasz z naszej wczesnej dyskusji na temat modelowania, że jest to ważne, aby modelować ogólną wielkość danych, nawet jeśli $x$ nigdy nie osiąga w rzeczywistości wartości zero. Termin błędu $epsilon$ odnosi się do tego, co pozostało po dopasowaniu modelu; często nazywamy to *resztkami* z modelu. Jeśli chcemy wiedzieć, jak przewidzieć y (które nazywamy $hat{y}$) po oszacowaniu wartości $beta$, to możemy zrezygnować z terminu błędu:
+
+$$
+\ťhat{y} = x * ťhat{beta_x} + ¨hat{beta_0}
+$$
+Zauważ, że jest to po prostu równanie linii, gdzie $hat{beta_x}$ jest naszym szacunkiem nachylenia, a $hat{beta_0}$ jest przechwytem. Rysunek \u0026apos; fig:LinearRegression) pokazuje przykład tego modelu zastosowanego do danych dotyczących czasu badania.
+
+``{r LinearRegression,echo=FALSE,fig.cap="Rozwiązanie regresji liniowej dla danych o czasie badania przedstawia linia ciągła Wartość interceptu jest równa przewidywanej wartości zmiennej y, gdy zmienna x jest równa zeru; jest to pokazane linią kropkowaną.  Wartość beta jest równa nachyleniu linii -- to znaczy, jak bardzo zmienia się y przy jednostkowej zmianie x. Jest to pokazane schematycznie w liniach przerywanych, które pokazują stopień wzrostu oceny przy jednostkowym wzroście czasu nauki.",fig.width=4,fig.height=4,out.height='50%'}
+
+lmResult <- lm(grade~studyTime,data=df)
+
+p2 <- p+geom_abline(slope=lmResult$coefficients[2],
+                  intercept=lmResult$coefficients[1],
+                  color='blue')
+
+
+p3 <- p2 +
+  geom_hline(yintercept=lmResult$coefficients[1],color='black',size=0.5,linetype='dotted') +
+  annotate('segment',x=2,xend=3,color='red',linetype='dashed',
+           y=predict(lmResult,newdata=data.frame(studyTime=2))[1],
+           yend=predict(lmResult,newdata=data.frame(studyTime=2))[1]) +
+   annotate('segment',x=3,xend=3,color='red',linetype='dashed',
+           y=predict(lmResult,newdata=data.frame(studyTime=2))[1],
+           yend=predict(lmResult,newdata=data.frame(studyTime=3))[1])
+
+print(p3)
+
+```
+
+Nie będziemy wchodzić w szczegóły tego, jak najlepiej dopasowane nachylenie i przechylenie są faktycznie szacowane z danych; jeśli jesteś zainteresowany, szczegóły są dostępne w dodatku.
+
+### Regresja do średniej {#regression-to-the-mean}
+
+Koncepcja *regresji do średniej* była jednym z istotnych wkładów Galtona do nauki i pozostaje krytycznym punktem do zrozumienia, gdy interpretujemy wyniki analiz danych eksperymentalnych.  Załóżmy, że chcemy zbadać wpływ interwencji w zakresie czytania na wyniki osiągane przez słabych czytelników.  Aby sprawdzić naszą hipotezę, moglibyśmy udać się do szkoły i wyselekcjonować osoby z dolnych 25% rozkładu w jakimś teście czytania, zastosować interwencję, a następnie zbadać ich wyniki na teście po interwencji.  Załóżmy, że interwencja nie ma żadnego wpływu, a wyniki czytania dla każdej osoby są po prostu niezależnymi próbkami z rozkładu normalnego.  Wyniki z symulacji komputerowej tego hipotetycznego eksperymentu są przedstawione w Tabeli.
+
+`{r readingTable, echo=FALSE}
+# utwórz symulowane dane dla regresji do średniej przykład
+
+nstudenci <- 100
+
+readingScores <- data.frame(
+  # losowy rozkład normalny wyników dla testu 1
+  test1 = rnorm(n = nstudentów, mean = 0, sd = 1) * 10 + 100,
+  #normalny rozkład losowy wyników dla testu 2
+  test2 = rnorm(n = nstudentów, średnia = 0, sd = 1) * 10 + 100
+)
+
+# wybierz studentów z dolnych 25% z pierwszego testu
+cutoff <- quantile(readingScores$test1, 0.25)
+
+readingScores <-
+  readingScores %>%
+  mutate(badTest1 = test1 < cutoff) %>%
+  dplyr::filter(badTest1 == TRUE) %>%
+  summarize(
+    `Test 1` = mean(test1),
+    `Test 2` = mean(test2)
+  )
+readingScores = as.data.frame(t(readingScores)) %>% rename(Score = V1)
+kable(readingScores, caption='Wyniki czytania dla testu 1 (który jest niższy, bo był podstawą doboru uczniów) i testu 2 (który jest wyższy, bo nie był związany z testem 1).')
+```
+
+Jeśli spojrzymy na różnicę między średnimi wynikami testu na pierwszym i drugim teście, to okaże się, że interwencja znacząco pomogła tym uczniom, gdyż ich wyniki na teście wzrosły o ponad dziesięć punktów!  Wiemy jednak, że w rzeczywistości uczniowie wcale się nie poprawili, ponieważ w obu przypadkach wyniki zostały po prostu wybrane z losowego rozkładu normalnego. To, co się stało, to fakt, że niektórzy uczniowie uzyskali złe wyniki na pierwszym teście po prostu z powodu przypadku. Jeśli wybierzemy tylko tych badanych na podstawie ich wyników z pierwszego testu, to mamy gwarancję, że w drugim teście cofną się oni do średniej całej grupy, nawet jeśli nie będzie efektu treningu. Jest to powód, dla którego zawsze potrzebujemy nieleczonej *grupy kontrolnej*, aby zinterpretować zmiany w wynikach spowodowane interwencją; w przeciwnym razie możemy zostać oszukani przez regresję do średniej.  Ponadto uczestnicy muszą być losowo przydzieleni do grupy kontrolnej lub leczonej, tak aby nie było systematycznych różnic między grupami (średnio).
+
+### Związek między korelacją a regresją
+
+Istnieje ścisły związek między współczynnikami korelacji i współczynnikami regresji.  Przypomnijmy, że współczynnik korelacji Pearsona oblicza się jako stosunek kowariancji i iloczynu odchyleń standardowych x i y:
+
+$$
+\Współczynnik korelacji = ∑frac{kowariancja_{xy}}{s_x * s_y}
+$$
+natomiast beta regresji dla x jest obliczana jako:
+
+$$
+\ˆhat{beta_x} = ˆfrac{kowariancja_{xy}}{s_x*s_x}
+$$
+
+Na podstawie tych dwóch równań możemy wyprowadzić zależność między $hat{r}$ i $hat{beta}$:
+
+$$
+kowariancja_{xy} = ≥hat{r} * s_x * s_y
+$$
+
+$$
+\Kowariancja_x} = λhat{r} * s_x * s_y}{s_x * s_x} = r * ﬁrrac{s_y}{s_x}
+$$
+Oznacza to, że nachylenie regresji jest równe wartości korelacji pomnożonej przez stosunek odchyleń standardowych y i x. Jedno, co nam to mówi, to że kiedy odchylenia standardowe x i y są takie same (np. kiedy dane zostały przekształcone na punkty Z), wtedy oszacowanie korelacji jest równe oszacowaniu nachylenia regresji.
+
+### Błędy standardowe dla modeli regresji
+
+Jeżeli chcemy wnioskować o szacunkach parametrów regresji, to potrzebujemy również oszacowania ich zmienności.  Aby to obliczyć, musimy najpierw obliczyć *wariancję resztową* lub *wariancję błędów* dla modelu - to znaczy, ile zmienności zmiennej zależnej nie jest wyjaśnione przez model.  Reszty modelu możemy obliczyć w następujący sposób:
+
+$$
+resztka = y - (x - \a_x} + \a_0})
+$$
+Następnie obliczamy *sumę błędów kwadratowych (SSE)*:
+
+$$
+SS_{błąd} = ∑^n{(y_i - ∑^2} = ∑^n{residuals^2}
+$$
+i z tego obliczamy *średni błąd kwadratowy*:
+
+$$
+MS_{błąd} = ﬁrrac{SS_{błąd}}{df} = ﬁrrac{sum_{i=1}^n{(y_i - ﬁrma})^2}. }{N - p}
+$$
+gdzie stopnie swobody ($df$) wyznaczamy odejmując liczbę szacowanych parametrów (w tym przypadku 2: $hat{beta_x}$ i $hat{beta_0}$) od liczby obserwacji ($N$).  Gdy mamy już błąd średniokwadratowy, możemy obliczyć błąd standardowy dla modelu jako:
+
+$$
+SE_{model} = ∑sqrt{MS_{error}
+$$
+
+Aby otrzymać błąd standardowy dla konkretnego oszacowania parametru regresji, $SE_{model}$, musimy przeskalować błąd standardowy modelu przez pierwiastek kwadratowy z sumy kwadratów zmiennej X:
+
+$$
+SE_{beta}_x} = \frac{SE_{model}}{\i0}sqrt{{suma{(x_i - \i0})^2}}}}
+$$
+
+### Testy statystyczne dla parametrów regresji
+
+Kiedy mamy już oszacowania parametrów i ich błędy standardowe, możemy obliczyć statystykę *t*, która mówi nam o prawdopodobieństwie obserwowanych oszacowań parametrów w porównaniu z pewną wartością oczekiwaną przy hipotezie zerowej. W tym przypadku będziemy testować przeciwko hipotezie zerowej o braku efektu (tj. $beta=0$):
+
+$$
+\u200}{c}
+t_{N - p} = \frac{hat{beta} - \beta_{expected}}{SE_{hat{beta}}}.
+t_{N - p} = ﬁrac{hat{beta} - 0}{SE_{hat{beta}}}}}
+t_{N - p} = ﬁrac{hat{beta} } {SE_hat{beta}}
+\end{array}
+$$
+
+Ogólnie rzecz biorąc, użylibyśmy oprogramowania statystycznego do obliczenia tych danych, zamiast obliczać je ręcznie. Oto wyniki z funkcji modelu liniowego w R:
+
+``{r echo=FALSE}
+summary(lmResult)
+```
+
+W tym przypadku widzimy, że punkt przecięcia jest znacząco różny od zera (co nie jest zbyt interesujące) i że wpływ czasu studiów na oceny jest marginalnie istotny (p = .09) -- ta sama wartość p, co test korelacji, który wykonaliśmy wcześniej.
+
+### Ilościowa ocena dobroci dopasowania modelu
+
+Czasami warto określić jak dobrze model pasuje do danych, a jednym ze sposobów na to jest zapytanie jak duża część zmienności w danych jest uwzględniona przez model.  Jest to określane za pomocą wartości zwanej $R^2$ (znanej również jako *współczynnik determinacji*).  Jeśli istnieje tylko jedna zmienna x, to łatwo ją obliczyć przez proste podniesienie do kwadratu współczynnika korelacji:
+
+$$
+R^2 = r^2
+$$
+W przypadku naszego przykładu czasu nauki, $R^2$ = `r I(cor(df$studyTime,df$grade)**2)`, co oznacza, że uwzględniliśmy około 40% wariancji ocen.
+
+Bardziej ogólnie możemy myśleć o $R^2$ jako o miarze frakcji wariancji w danych, która jest uwzględniona przez model, co można obliczyć poprzez rozbicie wariancji na wiele składowych:
+
+**TO JEST MYLĄCE, ZMIEŃ NA RESZTĘ ZAMIAST BŁĘDU**.
+
+$$
+SS_{total} = SS_{model} + SS_{błąd}
+$$
+gdzie $SS_{total}$ jest wariancją danych ($y$), a $SS_{model}$ i $SS_{error}$ są obliczane jak pokazano wcześniej w tym rozdziale.  Korzystając z tego, możemy następnie obliczyć współczynnik determinacji jako:
+
+$$
+R^2 = \frac{SS_{model}}{SS_{total}} = 1 - \frac{SS_{error}}{SS_{total}}
+$$
+
+Mała wartość $R^2$ mówi nam, że nawet jeśli dopasowanie modelu jest statystycznie istotne, to może on wyjaśniać tylko niewielką ilość informacji w danych.
+
+## Dopasowanie bardziej złożonych modeli
+
+Często chcielibyśmy zrozumieć wpływ wielu zmiennych na jakiś konkretny wynik i jak one się ze sobą wiążą.  W kontekście naszego przykładu z czasem nauki, powiedzmy, że odkryliśmy, że niektórzy studenci brali wcześniej udział w kursie na ten temat.  Jeśli wykreślimy ich oceny (patrz rysunek \ref(fig:LinearRegressionByPriorClass)), zobaczymy, że ci, którzy mieli wcześniejszy kurs, osiągają znacznie lepsze wyniki niż ci, którzy go nie mieli, biorąc pod uwagę ten sam czas nauki. Chcielibyśmy zbudować model statystyczny, który to uwzględnia, co możemy zrobić, rozszerzając model, który zbudowaliśmy powyżej:
+
+$$
+≥Hat{y} = ≥Hat{beta_1}*studyTime + ≥Hat{beta_2}*priorClass + ≥Hat{beta_0}
+$$
+Aby wymodelować, czy każda osoba miała wcześniejsze zajęcia, czy nie, używamy czegoś, co nazywamy *kodowaniem dummy*, w którym tworzymy nową zmienną, która ma wartość jeden, aby reprezentować posiadanie wcześniejszych zajęć, a zero w przeciwnym wypadku.  Oznacza to, że dla osób, które miały zajęcia wcześniej, po prostu dodamy wartość $hat{beta_2}$ do naszej przewidywanej wartości dla nich - to znaczy, używając kodowania dummy $hat{beta_2}$ po prostu odzwierciedla różnicę w średnich między dwiema grupami. Nasze oszacowanie wartości $hat{beta_1}$ odzwierciedla nachylenie regresji dla wszystkich punktów danych -- zakładamy, że nachylenie regresji jest takie samo niezależnie od tego, czy ktoś miał wcześniej zajęcia (patrz rysunek \u0026.pl).
+
+``{r echo=FALSE}
+# wykonaj regresję liniową dla czasu studiów i wcześniejszej klasy
+
+# musi zmienić priorClass na zmienną czynnikową
+df$priorClass <- as.factor(df$priorClass)
+
+lmResultTwoVars <- lm(grade ~ studyTime + priorClass, data = df)
+summary(lmResultTwoVars)
+
+```
+
+``{r LinearRegressionByPriorClass,echo=FALSE, fig.cap='Zależność między czasem studiów a oceną z uwzględnieniem wcześniejszego doświadczenia jako dodatkowego komponentu w modelu.  Linia ciągła odnosi czas nauki do ocen dla studentów, którzy nie mieli wcześniejszego doświadczenia, a linia przerywana odnosi oceny do czasu nauki dla studentów z wcześniejszym doświadczeniem. Linia przerywana odpowiada różnicy średnich pomiędzy dwoma grupami.',fig.width=6,fig.height=4,out.height='50%'}
+
+
+p <- ggplot(df,aes(studyTime,grade,shape=priorClass)) +
+  geom_point(size=3) + xlim(0,5) + ylim(70,100)
+
+
+p <- p+
+  geom_abline(slope=lmResultTwoVars$coefficients[2],
+              intercept=lmResultTwoVars$coefficients[1],lineype='dotted')
+
+# p <- p+
+# annotate('segment',x=2,xend=3,
+# y=lmResultTwoVars$coefficients[1]+
+# 2*lmResultTwoVars$coefficients[2],
+# yend=lmResultTwoVars$coefficients[1]+
+# 2*lmResultTwoVars$coefficients[2],
+# color='blue') +
+# annotate('segment',x=3,xend=3,
+# y=lmResultTwoVars$coefficients[1]+
+# 2*lmResultTwoVars$coefficients[2],
+# yend=lmResultTwoVars$coefficients[1]+
+# 3*lmResultTwoVars$coefficients[2],
+# color='blue')
+
+
+p <- p+
+  geom_abline(slope=lmResultTwoVars$coefficients[2],
+              intercept=lmResultTwoVars$coefficients[1]+
+                lmResultTwoVars$coefficients[3],
+              linetype='dashed')
+
+p <- p+
+  annotate('segment',x=2,xend=2,
+           y=lmResultTwoVars$coefficients[1]+
+             2*lmResultTwoVars$coefficients[2],
+           yend=lmResultTwoVars$coefficients[1]+
+             lmResultTwoVars$coefficients[3] +
+             2*lmResultTwoVars$coefficients[2],
+           linetype='dotted',size=1) +
+  scale_color_discrete(
+    limits = c(0, 1),
+    labels = c("No", "Yes")
+  ) +
+  labs(
+    color = "Poprzedni kurs"
+  )
+print(p)
+```
+
+## Interakcje między zmiennymi
+
+W poprzednim modelu założyliśmy, że wpływ czasu studiów na ocenę (tj. nachylenie regresji) jest taki sam dla obu grup. Jednak w niektórych przypadkach możemy sobie wyobrazić, że wpływ jednej zmiennej może być różny w zależności od wartości innej zmiennej, co określamy jako *interakcję* między zmiennymi.
+
+
+``{r CaffeineSpeaking, echo=FALSE}
+set.seed(1234567)
+
+df <-
+  data.frame(
+    group=c(rep(-1,10),
+            rep(1,10)
+          )
+  ) %>%
+  mutate(caffeine=runif(n())*100) %>%
+  mutate(mówienie=0,5*kofeina*grupa + grupa*20 + rnorm(20)*10) %>%.
+  mutate(anxiety=ifelse(group==1,'anxious','notAnxious'))
+
+```
+
+Użyjmy nowego przykładu, który zadaje pytanie: Jaki jest wpływ kofeiny na wystąpienia publiczne?  Najpierw wygenerujmy kilka danych i wykreślmy je.
+Patrząc na panel A rysunku `ref(fig:CaffeineAnxietyInteraction), nie wydaje się, aby istniał związek, i możemy to potwierdzić, wykonując regresję liniową na danych:
+
+``{r echo=FALSE}
+# wykonaj regresję liniową z kofeiną jako zmienną niezależną
+lmResultCaffeine <- lm(speaking ~ caffeine, data = df)
+summary(lmResultCaffeine)
+```
+
+Ale teraz powiedzmy, że znajdziemy badania sugerujące, że osoby lękliwe i nielękliwe inaczej reagują na kofeinę.  Najpierw wykreślmy dane osobno dla osób lękowych i nie lękowych.
+
+Jak widzimy na panelu B na rysunku, okazuje się, że związek między mówieniem a kofeiną jest różny dla obu grup, przy czym kofeina poprawia wyniki osób bez lęku i pogarsza wyniki osób z lękiem.  Chcielibyśmy stworzyć model statystyczny, który odpowie na to pytanie.  Najpierw zobaczmy, co się stanie, jeśli w modelu uwzględnimy tylko lęk.
+
+``{r echo=FALSE}
+# oblicz regresję liniową dodając lęk do modelu
+lmResultCafAnx <- lm(speaking ~ caffeine + anxiety, data = df)
+summary(lmResultCafAnx)
+```
+
+Tutaj widzimy, że nie ma znaczących efektów ani kofeiny, ani lęku, co może wydawać się nieco mylące.  Problem polega na tym, że ten model próbuje użyć tego samego nachylenia odnoszącego mówienie do kofeiny dla obu grup. Jeśli chcemy dopasować je za pomocą linii o osobnych nachyleniach, musimy uwzględnić *interakcję* w modelu, co jest równoznaczne z dopasowaniem różnych linii dla każdej z dwóch grup; jest to często oznaczane przez użycie symbolu $*$ w modelu.
+
+``{r echo=FALSE}
+# oblicz regresję liniową obejmującą interakcję kofeina X niepokój
+lmResultInteraction <- lm(
+  mówienie ~ kofeina + niepokój + kofeina * niepokój,
+  dane = df
+)
+summary(lmResultInteraction)
+```
+
+Z tych wyników widzimy, że istnieją znaczące efekty zarówno kofeiny, jak i lęku (które nazywamy *głównymi efektami*) oraz interakcja między kofeiną a lękiem. Panel C na rycinie \u0026.pl pokazuje oddzielne linie regresji dla każdej grupy.
+
+``{r CaffeineAnxietyInteraction, echo=FALSE,fig.cap='A: Związek między kofeiną a wystąpieniami publicznymi. B: Związek pomiędzy kofeiną i wystąpieniami publicznymi, z niepokojem reprezentowanym przez kształt punktów danych. C: Związek pomiędzy wystąpieniami publicznymi a kofeiną, z uwzględnieniem interakcji z lękiem.  Wynikiem tego są dwie linie, które oddzielnie modelują nachylenie dla każdej grupy (przerywane dla lękowych, kropkowane dla nielękliwych).',fig.width=8,fig.height=8,out.width='80%'}
+
+p1 <- ggplot(df,aes(caffeine,speaking)) +
+  geom_point()
+
+p2 <- ggplot(df,aes(caffeine,speaking,shape=anxiety)) +
+  geom_point() +
+  theme(legend.position = c(0.1, 0.9))
+
+df_anx <-
+  df %>%
+  subset(anxiety='anxious') %>%
+  mutate(y=lmResultInteraction$fitted.values[df$anxiety=='anxious'])
+
+df_notanx <-
+  df %>%
+  subset(anxiety=='notAnxious')%>%
+  mutate(y=lmResultInteraction$fitted.values[df$anxiety=='notAnxious'])
+
+
+
+p3 <- ggplot(df,aes(caffeine,speaking,shape=anxiety)) +
+   geom_point() +
+   theme(legend.position = c(0.1, 0.9)) +
+  geom_line(data=df_anx,
+             aes(caffeine,y),linetype='dashed') +
+  geom_line(data=df_notanx,
+             aes(kofeina,y),linetype='dotted')
+plot_grid(p1, p2, p3, labels='AUTO')
+```
+
+Należy zwrócić uwagę na to, że musimy być bardzo ostrożni w interpretacji znaczącego efektu głównego, jeśli występuje również znacząca interakcja, ponieważ interakcja sugeruje, że efekt główny różni się w zależności od wartości innej zmiennej, a zatem nie jest łatwa do interpretacji.
+
+Czasami chcemy porównać względne dopasowanie dwóch różnych modeli, aby określić, który z nich jest lepszy; nazywamy to *porównaniem modeli*.  Dla powyższych modeli możemy porównać dobroć dopasowania modelu z i bez interakcji, używając czegoś, co nazywamy *analizą wariancji*:
+
+``{r echo=FALSE}
+anova(lmResultCafAnx, lmResultInteraction)
+```
+
+To mówi nam, że istnieją dobre dowody, aby preferować model z interakcją nad modelem bez interakcji.  Porównanie modeli jest w tym przypadku stosunkowo proste, ponieważ dwa modele są *zagnieżdżone* - jeden z modeli jest uproszczoną wersją drugiego modelu, tak że wszystkie zmienne w prostszym modelu są zawarte w bardziej złożonym modelu.  Porównanie modeli z modelami nie zagnieżdżonymi może być znacznie bardziej skomplikowane.
+
+## Poza liniowymi predyktorami i wynikami
+
+Ważne jest, aby zauważyć, że pomimo faktu, że jest on nazywany ogólnym modelem *liniowym*, możemy w rzeczywistości użyć tego samego mechanizmu do modelowania efektów, które nie podążają za linią prostą (takich jak krzywe).  "Liniowy" w ogólnym modelu liniowym nie odnosi się do kształtu odpowiedzi, ale zamiast tego odnosi się do faktu, że model jest liniowy w swoich parametrach --- to znaczy, że predyktory w modelu tylko pomnażają parametry, a nie nieliniowe relacje, takie jak podniesienie do potęgi parametru.  Powszechne jest również analizowanie danych, w których wyniki są raczej binarne niż ciągłe, jak widzieliśmy w rozdziale o wynikach kategorycznych. Istnieją sposoby dostosowania ogólnego modelu liniowego (znane jako *uogólnione modele liniowe*), które pozwalają na tego rodzaju analizę. Będziemy badać te modele w dalszej części książki.
+
+## Krytyka naszego modelu i sprawdzanie założeń {#model-criticism}
+
+Powiedzenie "garbage in, garbage out" jest tak samo prawdziwe w statystyce jak wszędzie indziej.  W przypadku modeli statystycznych musimy się upewnić, że nasz model jest właściwie określony i że nasze dane są odpowiednie dla tego modelu.
+
+Kiedy mówimy, że model jest "właściwie określony", mamy na myśli, że włączyliśmy do niego odpowiedni zestaw zmiennych niezależnych.  Widzieliśmy już przykłady błędnie sprecyzowanych modeli, na rysunku ﬁrmy Fig:childHeightLine).  Pamiętaj, że widzieliśmy kilka przypadków, w których model nie uwzględniał prawidłowo danych, np. nie uwzględniał interceptu. Budując model, musimy się upewnić, że zawiera on wszystkie odpowiednie zmienne.
+
+Musimy się również martwić o to, czy nasz model spełnia założenia naszych metod statystycznych.  Jednym z najważniejszych założeń, które przyjmujemy przy stosowaniu ogólnego modelu liniowego, jest to, że reszty (czyli różnica między przewidywaniami modelu a rzeczywistymi danymi) mają rozkład normalny. Może to zawieść z wielu powodów, ponieważ model nie został prawidłowo określony lub ponieważ dane, które modelujemy, są nieodpowiednie.
+
+Aby sprawdzić, czy nasze reszty mają rozkład normalny, możemy użyć czegoś, co nazywamy wykresem *Q-Q* (quantile-quantile).  Spotkaliście się już z *kwantylami* --- są to wartości, które odcinają określoną część rozkładu skumulowanego. Wykres Q-Q przedstawia kwantyle dwóch rozkładów względem siebie; w tym przypadku przedstawimy kwantyle rzeczywistych danych względem kwantyli rozkładu normalnego dopasowanego do tych samych danych. Rysunek pokazuje przykłady dwóch takich wykresów Q-Q.  Lewy panel pokazuje wykres Q-Q dla danych z rozkładu normalnego, natomiast prawy panel pokazuje wykres Q-Q z danych nienormalnych.  Punkty danych w prawym panelu odbiegają znacznie od linii, odzwierciedlając fakt, że nie są one normalnie rozłożone.
+
+``{r qqplots, fig.width=8, fig.height=4, out.width="80%", fig.cap="Q-Q plotsof normal (left) and non-normal (right) data.  Linia pokazuje punkt, w którym osie x i y są równe."}
+qq_df <- tibble(norm=rnorm(100),
+                unif=runif(100))
+
+p1 <- ggplot(qq_df,aes(sample=norm)) +
+  geom_qq() +
+  geom_qq_line() +
+  ggtitle('Dane normalne')
+
+p2 <- ggplot(qq_df,aes(sample=unif)) +
+  geom_qq() +
+  geom_qq_line()+
+  ggtitle('Dane nie-normalne')
+
+plot_grid(p1,p2)
+```
+
+Diagnostyka modelu zostanie zbadana bardziej szczegółowo w późniejszym rozdziale.
+
+## Co tak naprawdę oznacza słowo "przewidywać"?
+
+Kiedy mówimy o "przewidywaniu" w życiu codziennym, mamy na myśli zdolność do oszacowania wartości jakiejś zmiennej przed zobaczeniem danych.  Jednak termin ten jest często używany w kontekście regresji liniowej, aby odnieść się do dopasowania modelu do danych; oszacowane wartości ($hat{y}$) są czasami nazywane "przewidywaniami", a zmienne niezależne są określane jako "predyktory".  Ma to niefortunną konotację, ponieważ sugeruje, że nasz model powinien być również w stanie przewidzieć wartości nowych punktów danych w przyszłości. W rzeczywistości, dopasowanie modelu do zbioru danych użytych do uzyskania parametrów prawie zawsze będzie lepsze niż dopasowanie modelu do nowego zbioru danych [@copa:1983].
+
+Jako przykład weźmy próbkę 48 dzieci z NHANES i dopasujmy model regresji dla wagi, który zawiera kilka regresorów (wiek, wzrost, godziny spędzone na oglądaniu telewizji i używaniu komputera oraz dochód gospodarstwa domowego) wraz z ich interakcjami.  
+
+``{r echo=FALSE}
+# utwórz ramkę danych z dziećmi z pełnymi danymi na temat wszystkich zmiennych
+set.seed(12345)
+
+NHANES_child <-
+  NHANES %>%
+  drop_na(Height, Weight, TVHrsDayChild, HHIncomeMid, CompHrsDayChild, Age) %>%
+  dplyr::filter(Age < 18)
+
+# utwórz funkcję do próbkowania danych i obliczania regresji na danych w próbie i poza próbą
+
+get_sample_predictions <- function(sample_size, shuffle = FALSE) {
+  # wygeneruj próbę z NHANES
+  orig_sample <-
+    NHANES_child %>%
+    sample_n(sample_size)
+
+  # jeśli shuffle jest włączone, to losowo przetasuj zmienną wagi
+  if (shuffle) {
+    orig_sample$Weight <- sample(orig_sample$Weight)
+  }
+  # oblicz linię regresji dla Wagi, jako funkcję kilku
+  # innych zmiennych (z wszystkimi możliwymi interakcjami między zmiennymi)
+  heightRegressOrig <- lm(
+    Waga ~ Wysokość * TVHrsDayChild * CompHrsDayChild * HHIncomeMid * Wiek,
+    data = orig_sample
+  )
+  # oblicz prognozy
+  pred_orig <- predict(heightRegressOrig)
+
+  # utwórz nową próbę z tej samej populacji
+  new_sample <-
+    NHANES_dziecko %>%
+    sample_n(sample_size)
+
+  # użyj modelu z oryginalnej próby, aby przewidzieć
+  # wartości wagi dla nowej próby
+  pred_new <- predict(heightRegressOrig, new_sample)
+
+  # zwróć r-squared i rmse dla oryginalnych i nowych danych
+  return(c(
+    cor(pred_orig, orig_sample$Weight)**2,
+    cor(pred_new, new_sample$Weight)**2,
+    sqrt(mean((pred_orig - orig_sample$Weight)**2)),
+    sqrt(mean((pred_new - new_sample$Weight)**2)))
+  ))
+}
+
+# implementacja funkcji
+sim_results <-
+  replicate(100, get_sample_predictions(sample_size = 48, shuffle = FALSE))
+
+sim_results <-
+  t(sim_results) %>%
+  data.frame()
+
+mean_rsquared <-
+  sim_wyniki %>%
+  summarize(
+    `RMSE (dane oryginalne)` = mean(X3),
+    `RMSE (nowe dane)` = mean(X4)
+  )
+
+# używając przetasowanej zmiennej y do symulacji efektu zerowego
+
+sim_results <-
+  replicate(100, get_sample_predictions(sample_size = 48, shuffle = TRUE))
+
+sim_results <-
+  t(sim_wyniki) %>%
+  data.frame()
+
+mean_rsquared_sim <-
+  sim_wyniki %>%
+  summarize(
+    `RMSE (dane oryginalne)` = mean(X3),
+    `RMSE (nowe dane)` = mean(X4)
+  )
+combined_rsquared = rbind(mean_rsquared, mean_rsquared_sim) %>%
+  mutate(`Typ danych`=c('Dane prawdziwe', 'Dane przetasowane')) %>%
+  dplyr::select(`Typ danych`,`RMSE (dane oryginalne)`,`RMSE (nowe dane)`)
+kable(combined_rsquared, caption='Root mean squared error for model applied to original data and new data, and after shuffling the order of the y variable (in essence making the null hypothesis true)')
+```
+
+
+Widzimy tutaj, że podczas gdy model dopasowany do oryginalnych danych wykazał bardzo dobre dopasowanie (tylko poza kilkoma kilogramami na osobę), ten sam model znacznie gorzej radzi sobie z przewidywaniem wartości wagi dla nowych dzieci pobranych z tej samej populacji (poza ponad 25 kg na osobę).  Dzieje się tak dlatego, że określony przez nas model jest dość złożony, ponieważ obejmuje nie tylko każdą z poszczególnych zmiennych, ale także wszystkie możliwe ich kombinacje (czyli ich *interakcje*), co daje model o 32 parametrach.  Ponieważ jest to prawie tyle współczynników, ile jest punktów danych (np. wysokości 48 dzieci), model ten *przystaje* do danych, podobnie jak złożona krzywa wielomianowa w naszym początkowym przykładzie przerostu dopasowania w rozdziale \N(przerost dopasowania).
+
+Innym sposobem na zobaczenie efektów przepasowania jest przyjrzenie się temu, co się stanie, jeśli losowo potasujemy wartości zmiennej wagi (pokazanej w drugim wierszu tabeli). Losowe tasowanie wartości powinno uniemożliwić przewidywanie wagi na podstawie pozostałych zmiennych, ponieważ nie powinny one mieć żadnego systematycznego związku.  Wyniki w tabeli pokazują, że nawet gdy nie ma prawdziwego związku do modelowania (ponieważ tasowanie powinno zatrzeć związek), złożony model nadal wykazuje bardzo niski błąd w swoich przewidywaniach na dopasowanych danych, ponieważ pasuje do szumu w konkretnym zestawie danych.  Jednak gdy ten model jest stosowany do nowego zestawu danych, widzimy, że błąd jest znacznie większy, tak jak powinien być.
+
+### Walidacja krzyżowa {#cross-validation}
+
+Jedną z metod, która została opracowana w celu rozwiązania problemu nadmiernego dopasowania jest tzw. walidacja krzyżowa.  Technika ta jest powszechnie stosowana w dziedzinie uczenia maszynowego, która skupia się na budowaniu modeli, które będą dobrze generalizować na nowe dane, nawet jeśli nie mamy nowego zbioru danych do przetestowania modelu. Idea walidacji krzyżowej polega na tym, że dopasowujemy nasz model wielokrotnie, za każdym razem pomijając pewien podzbiór danych, a następnie testujemy zdolność modelu do przewidywania wartości w każdym pominiętym podzbiorze.  
+
+
+``{r crossvalidation,echo=FALSE,fig.cap="Schemat procedury walidacji krzyżowej.",fig.height=4,out.height='30%'}
+knitr::include_graphics("images/crossvalidation.png")
+
+```
+
+Zobaczmy, jak to by działało dla naszego przykładu przewidywania wagi.  W tym przypadku przeprowadzimy 12-krotną walidację krzyżową, co oznacza, że podzielimy dane na 12 podzbiorów, a następnie dopasujemy model 12 razy, w każdym przypadku pomijając jeden z podzbiorów, a następnie testując zdolność modelu do dokładnego przewidywania wartości zmiennej zależnej dla tych pominiętych punktów danych.  Większość programów statystycznych dostarcza narzędzi do zastosowania walidacji krzyżowej do swoich danych. Używając tej funkcji możemy uruchomić walidację krzyżową na 100 próbkach ze zbioru danych NHANES i obliczyć RMSE dla walidacji krzyżowej, wraz z RMSE dla oryginalnych danych i nowego zbioru danych, jak obliczyliśmy powyżej.
+
+``{r, echo=FALSE,warning=FALSE}
+# utwórz funkcję do uruchomienia walidacji krzyżowej
+# zwraca r-squared dla predykcji poza próbą
+set.seed(12345)
+compute_cv <- function(d, nfolds = 12) {
+  # na podstawie https://quantdev.ssri.psu.edu/tutorials/cross-validation-tutorial
+  train_ctrl <- trainControl(method = "cv", number = nfolds)
+  model_caret <- train(
+    Waga ~ Wysokość * TVHrsDayChild * CompHrsDayChild * HHIncomeMid * Wiek,
+    data = d,
+    trControl = train_ctrl, # folds
+    metoda = "lm"
+  ) # określenie modelu regresji
+
+  r2_cv <- mean(model_caret$resample$Rsquared)
+  rmse_cv <- mean(model_caret$resample$RMSE)
+  return(c(r2_cv, rmse_cv))
+}
+
+# utwórz funkcję do próbkowania danych i obliczania regresji na danych w próbie i poza próbą
+
+get_sample_predictions_cv <- function(sample_size, shuffle = FALSE) {
+  orig_sample <-
+    NHANES_dziecko %>%
+    sample_n(sample_size)
+
+  if (shuffle) {
+    orig_sample$Weight <- sample(orig_sample$Weight)
+  }
+
+  heightRegressOrig <- lm(
+    Waga ~ Wysokość * TVHrsDayChild * CompHrsDayChild * HHIncomeMid * Wiek,
+    dane = orig_sample
+  )
+
+  pred_orig <- predict(heightRegressOrig)
+
+  new_sample <-
+    NHANES_dziecko %>%
+    sample_n(sample_size)
+
+  pred_new <- predict(heightRegressOrig, new_sample)
+  # uruchom walidację krzyżową na oryginalnej próbie
+  cv_output <- compute_cv(orig_sample) #użyj funkcji utworzonej powyżej
+  return(c(
+    cor(pred_orig, orig_sample$Weight)**2,
+    cor(pred_new, new_sample$Weight)**2,
+    cv_output[1],
+    sqrt(mean((pred_orig - orig_sample$Weight)**2)),
+    sqrt(mean((pred_new - new_sample$Weight)**2)),
+    cv_output[2]
+  ))
+}
+
+#implementacja funkcji
+sim_results <-
+  replicate(1000, get_sample_predictions_cv(sample_size = 48, shuffle = FALSE))
+
+sim_results <-
+  t(sim_results) %>%
+  data.frame()
+
+mean_rsquared <-
+  sim_wyniki %>%
+  summarize(
+    `Dane pierwotne` = mean(X1),
+    `Nowe dane` = mean(X2),
+    `walidacja krzyżowa` = mean(X3)
+  )
+
+mean_rsquared_t = as.data.frame(t(mean_rsquared)) %>%
+  rename(`R-squared`=V1)
+
+kable(mean_rsquared_t, caption="R-squared z walidacji krzyżowej i nowych danych, pokazując, że walidacja krzyżowa zapewnia rozsądne oszacowanie wydajności modelu na nowych danych.")
+```
+
+Tutaj widzimy, że walidacja krzyżowa daje nam oszacowanie dokładności predykcyjnej, która jest znacznie bliższa temu, co widzimy z całkowicie nowym zbiorem danych, niż jest to zawyżona dokładność, którą widzimy z oryginalnym zbiorem danych -- w rzeczywistości jest nawet nieco bardziej pesymistyczna niż średnia dla nowego zbioru danych, prawdopodobnie dlatego, że tylko część danych jest używana do szkolenia każdego z modeli.  
+
+Należy pamiętać, że prawidłowe stosowanie walidacji krzyżowej jest trudne i zaleca się konsultację z ekspertem przed zastosowaniem jej w praktyce.  Jednak ten rozdział, miejmy nadzieję, pokazał Ci trzy rzeczy:
+
+- "Przewidywanie" nie zawsze oznacza to, co myślisz, że oznacza
+- Złożone modele mogą bardzo źle dopasować się do danych, tak że można zaobserwować pozornie dobre przewidywanie, nawet jeśli nie ma prawdziwego sygnału do przewidywania
+- Powinieneś bardzo sceptycznie podchodzić do twierdzeń o dokładności przewidywania, chyba że zostały one wykonane przy użyciu odpowiednich metod.
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś być w stanie:
+
+* Opisać pojęcie regresji liniowej i zastosować ją do zbioru danych.
+* Opisać koncepcję ogólnego modelu liniowego i podać przykłady jego zastosowania
+* Opisać, w jaki sposób walidacja krzyżowa może pozwolić nam na oszacowanie wydajności predykcyjnej modelu na nowych danych
+
+## Sugerowane lektury.
+
+- [The Elements of Statistical Learning: Data Mining, Inference, and Prediction (2nd Edition)](https://web.stanford.edu/~hastie/Papers/ESLII.pdf) - "biblia" metod uczenia maszynowego, dostępna swobodnie online.
+
+## Dodatek
+
+### Szacowanie parametrów regresji liniowej
+
+Parametry modelu liniowego szacujemy na podstawie danych przy użyciu *algebry liniowej*, która jest formą algebry stosowaną do wektorów i macierzy.  Jeśli nie jesteś zaznajomiony z algebrą liniową, nie martw się - nie będziesz musiał jej tutaj używać, ponieważ R wykona całą pracę za nas.  Jednakże, krótka wycieczka po algebrze liniowej może zapewnić pewien wgląd w to, jak parametry modelu są szacowane w praktyce.
+
+Po pierwsze, wprowadźmy pojęcie wektorów i macierzy; spotkałeś się już z nimi w kontekście R, ale tutaj je przejrzymy.  Macierz to zbiór liczb ułożonych w kwadracie lub prostokącie w taki sposób, że istnieje jeden lub więcej *wymiarów*, w których macierz jest zmienna.  Zwyczajowo umieszcza się różne jednostki obserwacyjne (takie jak ludzie) w rzędach, a różne zmienne w kolumnach. Weźmy na przykład nasze dane dotyczące czasu studiów. Moglibyśmy ułożyć te liczby w macierzy, która miałaby osiem wierszy (jeden dla każdego studenta) i dwie kolumny (jedna dla czasu nauki i jedna dla oceny).  Jeśli myślisz "to brzmi jak ramka danych w R", to masz rację!  W rzeczywistości ramka danych jest wyspecjalizowaną wersją macierzy, a my możemy przekonwertować ramkę danych na macierz za pomocą funkcji `as.matrix()`.
+
+```{r}
+df <-
+  tibble(
+    studyTime = c(2, 3, 5, 6, 8, 10, 12) / 3,
+    priorClass = c(0, 1, 1, 0, 1, 0, 1, 0)
+  ) %>%
+  mutate(
+    grade =
+      studyTime * betas[1] +
+      priorClass * betas[2] +
+      round(rnorm(8, mean = 70, sd = 5))
+  )
+
+df_matrix <-
+  df %>%
+  dplyr::select(studyTime, grade) %>%
+  as.matrix()
+```
+
+Ogólny model liniowy możemy zapisać w algebrze liniowej w następujący sposób:
+
+$$
+Y = X + E
+$$
+Wygląda to bardzo podobnie do wcześniejszego równania, którego używaliśmy, z tą różnicą, że wszystkie litery są pisane wielką literą, co ma wyrażać fakt, że są wektorami.  
+
+Wiemy, że dane dotyczące ocen trafiają do macierzy Y, ale co trafia do macierzy $X$?  Pamiętamy z naszej wstępnej dyskusji na temat regresji liniowej, że musimy dodać stałą do naszej interesującej zmiennej niezależnej, więc nasza macierz $X$ (którą nazywamy *macierzą projektu*) musi zawierać dwie kolumny: jedną reprezentującą zmienną czasu badania i jedną kolumnę z tą samą wartością dla każdego osobnika (którą zazwyczaj wypełniamy wszystkimi jedynkami). Wynikową macierz projektową możemy obejrzeć graficznie (patrz rysunek \N(fig:GLMmatrix)).
+
+``{r GLMmatrix, echo=FALSE,fig.cap="Przedstawienie modelu liniowego dla danych o czasie badania w kategoriach algebry macierzowej.",fig.width=4,fig.height=3.04}
+knitr::include_graphics("images/glm_matrix.png")
+```
+
+Reguły mnożenia macierzy mówią nam, że wymiary macierzy muszą się ze sobą zgadzać; w tym przypadku macierz konstrukcyjna ma wymiary 8 (wiersze) X 2 (kolumny), a zmienna Y ma wymiary 8 X 1. Zatem macierz $ musi mieć wymiary 2 X 1, ponieważ macierz 8 X 2 pomnożona przez macierz 2 X 1 daje macierz 8 X 1 (ponieważ odpadają pasujące wymiary środkowe).  Interpretacja dwóch wartości w macierzy $beta$ jest taka, że są to wartości, które należy pomnożyć odpowiednio przez czas studiów i 1, aby uzyskać szacowaną ocenę dla każdego osobnika. Możemy również postrzegać model liniowy jako zestaw indywidualnych równań dla każdego osobnika:
+
+$hat{y}_1 = studyTime_1 + 1*beta_2$
+
+$hat{y}_2 = studyTime_2*beta_1 + 1*beta_2$
+
+...
+
+$hat{y}_8 = studyTime_8* + 1*beta_2$
+
+Pamiętajmy, że naszym celem jest wyznaczenie najlepiej dopasowanych wartości $hat{y}_8$ biorąc pod uwagę znane wartości $X$ i $Y$.  Naiwnym sposobem, aby to zrobić, byłoby rozwiązanie dla $beta$ przy użyciu prostej algebry - tutaj opuszczamy termin błędu $E$, ponieważ jest on poza naszą kontrolą:
+
+$$
+= \u200}{Y} = \u200}{X}
+$$
+
+Wyzwanie polega na tym, że $X$ i $beta$ są teraz macierzami, a nie pojedynczymi liczbami -- ale zasady algebry liniowej mówią nam, jak dzielić przez macierz, co jest tym samym, co mnożenie przez *inwersję* macierzy (zwanej $X^{-1}$).  Możemy to zrobić w R:
+
+```{r}
+# compute beta estimates using linear algebra
+
+#twórz Y zmienną macierz 8 x 1
+Y <- as.matrix(df$grade)
+ #stwórz zmienną X macierz 8 x 2
+X <- matrix(0, nrow = 8, ncol = 2)
+#przypisanie wartości studyTime do pierwszej kolumny w macierzy X
+X[, 1] <- as.matrix(df$studyTime)
+#przypisanie stałej 1 do drugiej kolumny w macierzy X
+X[, 2] <- 1
+
+# oblicz odwrotność X używając ginv()
+# %*% jest operatorem mnożenia macierzy R
+
+beta_hat <- ginv(X) %*% Y #mnożenie odwrotności X przez Y
+print(beta_hat)
+```
+
+Każdego, kto jest zainteresowany poważnym wykorzystaniem metod statystycznych, gorąco zachęcamy do zainwestowania trochę czasu w naukę algebry liniowej, ponieważ stanowi ona podstawę dla niemal wszystkich narzędzi, które są używane w standardowej statystyce.

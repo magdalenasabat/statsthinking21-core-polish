@@ -1,0 +1,468 @@
+---
+wyjście:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+  pdf_document: default
+---
+# Kwantyfikacja efektów i projektowanie badań {#ci-effect-size-power}
+
+W poprzednim rozdziale omówiliśmy, jak możemy wykorzystać dane do testowania hipotez.  Metody te dawały binarną odpowiedź: albo odrzucamy, albo nie odrzucamy hipotezy zerowej. Tego rodzaju decyzja pomija jednak kilka ważnych pytań.  Po pierwsze, chcielibyśmy wiedzieć, jak dużą mamy niepewność co do odpowiedzi (niezależnie od tego, w którą stronę ona zmierza).  Ponadto, czasami nie mamy jasnej hipotezy zerowej, więc chcielibyśmy zobaczyć, jaki zakres szacunków jest zgodny z danymi.  Po drugie, chcielibyśmy wiedzieć, jak duży jest w rzeczywistości efekt, ponieważ, jak widzieliśmy w przykładzie utraty wagi w poprzednim rozdziale, efekt istotny statystycznie niekoniecznie jest efektem ważnym praktycznie.
+
+W tym rozdziale omówimy metody pozwalające odpowiedzieć na te dwa pytania: przedziały ufności, aby zapewnić miarę naszej niepewności co do naszych szacunków, oraz wielkości efektu, aby zapewnić znormalizowany sposób zrozumienia, jak duże są efekty. Omówimy również koncepcję *mocy statystycznej*, która mówi nam, jak prawdopodobne jest znalezienie jakichkolwiek prawdziwych efektów, które rzeczywiście istnieją.
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(boot)
+library(MASS)
+library(pwr)
+set.seed(123456) # set random seed to exactly replicate results
+
+library(knitr)
+
+# załaduj bibliotekę danych NHANES
+library(NHANES)
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Waga) %>%
+  subset(Wiek>=18)
+
+```
+
+## Przedziały ufności
+
+
+
+``{r echo=FALSE}
+# weź próbkę z dorosłych w NHANES i podsumuj ich wagę
+
+sampSize <- 250
+NHANES_sample <- sample_n(NHANES_adult, sampSize)
+
+sample_summary <-
+  NHANES_sample %>%
+  podsumuj(
+    meanWeight = mean(Weight),
+    sdWeight = sd(Waga)
+  )
+# knitr(sample_summary,)
+```
+
+Do tej pory w książce skupialiśmy się na szacowaniu statystyki o jednej wartości.  Na przykład, powiedzmy, że chcemy oszacować średnią wagę dorosłych w zbiorze danych NHANES, więc bierzemy próbkę ze zbioru danych i szacujemy średnią. W tej próbie, średnia waga wynosiła `r I(sample_summary$meanWeight)` kilogramów.  Określamy to jako *punktowe oszacowanie*, ponieważ dostarcza nam ono pojedynczej liczby opisującej nasze oszacowanie parametru populacji.  Z wcześniejszej dyskusji na temat błędu próby wiemy jednak, że istnieje pewna niepewność co do tego oszacowania, która jest opisana przez błąd standardowy.  Należy również pamiętać, że błąd standardowy jest określony przez dwa składniki: odchylenie standardowe populacji (które jest w liczniku) oraz pierwiastek kwadratowy z wielkości próby (który jest w mianowniku).  Odchylenie standardowe populacji jest ogólnie nieznanym, ale stałym parametrem, na który nie mamy wpływu, natomiast wielkość próby *jest* pod naszą kontrolą.  Tak więc możemy zmniejszyć naszą niepewność co do oszacowania poprzez zwiększenie wielkości próby - aż do granicy wielkości całej populacji, w którym to momencie nie ma żadnej niepewności, ponieważ możemy po prostu obliczyć parametr populacji bezpośrednio z danych całej populacji.
+
+Często chcielibyśmy mieć sposób na bardziej bezpośrednie opisanie naszej niepewności co do oszacowania statystycznego, co możemy osiągnąć używając *przedziału ufności*.  Większość ludzi zna przedziały ufności z idei "marginesu błędu" w sondażach politycznych. Sondaże te zazwyczaj starają się dać odpowiedź, która jest dokładna w granicach +/- 3 procent. Na przykład, gdy szacuje się, że kandydat wygra wybory o 9 punktów procentowych z marginesem błędu 3, procent, o który wygra, jest szacowany w granicach 6-12 punktów procentowych. W statystyce tego rodzaju zakres wartości nazywamy przedziałem ufności, który zapewnia zakres wartości dla naszego oszacowania parametrów, które są zgodne z naszymi danymi z próby, a nie tylko daje nam pojedynczy szacunek oparty na danych. Im szerszy jest przedział ufności, tym bardziej niepewni jesteśmy co do naszego oszacowania parametru.
+
+Przedziały ufności są notorycznie mylące, głównie dlatego, że nie oznaczają tego, co intuicyjnie myślimy, że oznaczają. Jeśli powiem Ci, że obliczyłem "95% przedział ufności" dla mojej statystyki, to naturalnym wydaje się, że możemy mieć 95% pewności, że prawdziwa wartość parametru mieści się w tym przedziale. Jednakże, jak zobaczymy w trakcie kursu, pojęcia w statystyce często nie oznaczają tego, co myślimy, że powinny oznaczać. W przypadku przedziałów ufności nie możemy ich interpretować w ten sposób, ponieważ parametr populacji ma stałą wartość - albo jest, albo go nie ma w przedziale, więc mówienie o prawdopodobieństwie jego wystąpienia nie ma sensu. Jerzy Neyman, wynalazca przedziału ufności, powiedział:
+
+>"Parametr jest nieznaną stałą i nie można formułować twierdzeń o prawdopodobieństwie dotyczących jego wartości."[@Neyman37].
+
+Zamiast tego, musimy postrzegać procedurę przedziału ufności z tego samego punktu widzenia, z którego postrzegaliśmy testowanie hipotez:  Jako procedurę, która w dłuższym okresie czasu pozwoli nam na formułowanie poprawnych stwierdzeń z określonym prawdopodobieństwem.  Tak więc, właściwą interpretacją 95% przedziału ufności jest to, że jest to przedział, który będzie zawierał prawdziwą średnią w populacji przez 95% czasu, i w rzeczywistości możemy to potwierdzić używając symulacji, jak zobaczysz poniżej.
+
+Przedział ufności dla średniej jest obliczany jako:
+
+$$
+CI = \tekst{punktowe oszacowanie} \^text{wartość krytyczna} * \text{błąd standardowy}
+$$
+
+gdzie wartość krytyczna jest określona przez rozkład próbkowania oszacowania.  Ważnym pytaniem jest więc to, w jaki sposób otrzymujemy naszą estymację dla tego rozkładu próbkowania.
+
+### Przedziały ufności z wykorzystaniem rozkładu normalnego
+
+Jeżeli znamy odchylenie standardowe populacji, to możemy użyć rozkładu normalnego do obliczenia przedziału ufności. Zazwyczaj tego nie robimy, ale dla naszego przykładu zbioru danych NHANES robimy to, ponieważ traktujemy cały zbiór danych jako populację (jest to `r I(sd(NHANES_adult$Weight))` dla wagi).  
+
+Powiedzmy, że chcemy obliczyć 95% przedział ufności dla średniej. Wartością krytyczną byłyby wtedy wartości standardowego rozkładu normalnego, które ujmują 95% rozkładu; są to po prostu 2,5 percentyla i 97,5 percentyla rozkładu, które możemy obliczyć za pomocą naszego oprogramowania statystycznego i wychodzą one $ 1,96$.  Tak więc przedział ufności dla średniej ($X}$) wynosi:
+
+$$
+CI = ™bar{X} ™pm 1.96*SE
+$$
+
+Używając oszacowanej średniej z naszej próbki (`r I(sample_summary$meanWeight)`) i znanego odchylenia standardowego populacji, możemy obliczyć przedział ufności [`r I(sample_summary$meanWeight + qnorm(0. 025)*sd(NHANES_adult$Weight)/sqrt(sampSize))`,`r I(sample_summary$meanWeight + qnorm(0.975)*sd(NHANES_adult$Weight)/sqrt(sampSize))`].
+
+### Przedziały ufności przy użyciu rozkładu t
+
+Jak stwierdzono powyżej, gdybyśmy znali odchylenie standardowe populacji, wtedy moglibyśmy użyć rozkładu normalnego do obliczenia naszych przedziałów ufności. Jednak na ogół nie znamy - w takim przypadku rozkład *t* jest bardziej odpowiedni jako rozkład próbkowania. Pamiętajmy, że rozkład t jest nieco szerszy niż rozkład normalny, zwłaszcza dla mniejszych próbek, co oznacza, że przedziały ufności będą nieco szersze niż gdybyśmy używali rozkładu normalnego. Obejmuje to dodatkową niepewność, która pojawia się, gdy szacujemy parametry na podstawie małych próbek.
+
+
+``{r echo=FALSE, message=FALSE}
+# oblicz przedziały ufności dla wagi w danych NHANES
+
+próba_sumaryczna <-
+  próbka_podsumowania %>%
+  mutate(
+    cutoff_lower = qt(0.025, sampSize),
+    cutoff_upper = qt(0.975, sampSize),
+    SEM = sdWeight / sqrt(sampSize),
+    CI_lower = meanWeight + cutoff_lower * SEM,
+    CI_upper = meanWeight + cutoff_upper * SEM
+  )
+
+```
+
+Możemy obliczyć 95% przedział ufności w sposób podobny do powyższego przykładu rozkładu normalnego, ale wartość krytyczna jest określona przez 2,5 percentyla i 97,5 percentyla rozkładu *t* z odpowiednimi stopniami swobody.  Zatem przedział ufności dla średniej ($X}$) wynosi:
+
+$$
+CI = ¨bar{X} ¨pm t_{crit}*SE¨
+$$
+
+gdzie $t_{crit}$ jest wartością krytyczną t.
+Dla przykładu wagi NHANES (z wielkością próby `r I(sampSize)`), przedział ufności wynosiłby `r I(sprintf('%0.2f +/- %0.2f * %0.2f [%0.2f - %0.2f]', sample_summary$meanWeight,sample_summary$cutoff_upper,sample_summary$SEM, sample_summary$CI_lower, sample_summary$CI_upper))`.
+
+Pamiętajmy, że nie mówi nam to nic o prawdopodobieństwie, że prawdziwa wartość populacji mieści się w tym przedziale, ponieważ jest to parametr stały (który wiemy, że wynosi `r I(mean(NHANES_adult$Weight))`, ponieważ w tym przypadku mamy całą populację) i albo mieści się, albo nie mieści się w tym konkretnym przedziale (w tym przypadku się mieści).  Zamiast tego mówi nam, że w dłuższej perspektywie, jeśli obliczymy przedział ufności przy użyciu tej procedury, w 95% przypadków ten przedział ufności uchwyci prawdziwy parametr populacji.
+
+Możemy to zobaczyć, używając danych NHANES jako naszej populacji; w tym przypadku znamy prawdziwą wartość parametru populacji, więc możemy zobaczyć, jak często przedział ufności kończy się uchwyceniem tej wartości w wielu różnych próbach.  Rysunek pokazuje przedziały ufności dla szacowanej średniej wagi obliczone dla 100 próbek z zestawu danych NHANES.  Spośród nich 95 uchwyciło prawdziwą średnią wagę populacji, pokazując, że procedura przedziału ufności działa tak, jak powinna.
+
+``{r echo=FALSE}
+
+set.seed(123456)
+nsamples <- 100
+
+sample_ci <- data.frame(run=0, lower=rep(0, nsamples), upper=rep(0, nsamples), captured=0)
+for (i in 1:nsamples){
+  sampSize <- 250
+  NHANES_sample <- sample_n(NHANES_adult, sampSize)
+  sample_summary <- NHANES_sample %>%
+  podsumuj(
+    meanWeight = mean(Weight),
+    sdWaga = sd(Waga)
+  ) %>%
+  mutate(
+    cutoff_lower = qt(0.025, sampSize),
+    cutoff_upper = qt(0.975, sampSize),
+    SEM = sdWeight / sqrt(sampSize),
+    CI_lower = meanWeight + cutoff_lower * SEM,
+    CI_upper = meanWeight + cutoff_upper * SEM
+  )
+  # czy CI wychwytuje prawdziwą średnią
+  captured = sample_summary['CI_lower'] < mean(NHANES_adult$Weight) & sample_summary['CI_upper'] > mean(NHANES_adult$Weight)
+  sample_ci[i, ] = c(i, sample_summary[c('CI_lower', 'CI_upper')], captured)
+
+}
+
+```
+
+
+``{r CIcoverage,echo=FALSE,fig.cap="Próbki były wielokrotnie pobierane ze zbioru danych NHANES, a 95% przedział ufności średniej został obliczony dla każdej próbki.  Przedziały pokazane na czerwono nie uchwyciły prawdziwej średniej populacji (pokazanej jako linia przerywana).",fig.width=8,fig.height=4,out.height='50%'}
+
+
+# plot intervals
+#sample_ci['captured'] = as.factor(sample_ci['captured'])
+ggplot(sample_ci, aes(run, CI_lower)) +
+  geom_segment(aes(x=run, xend=run, y=lower, yend=upper, color=as.factor(captured))) +
+  geom_hline(yintercept=mean(NHANES_adult$Weight), linetype='dashed') +
+  ylab('Waga (kg)') +
+  xlab('próbki') +
+  labs(color = "CI captures mean")
+
+```
+
+### Przedziały ufności i wielkość próby
+
+Ponieważ błąd standardowy maleje wraz z wielkością próby, przedział ufności powinien się zawężać wraz ze wzrostem wielkości próby, zapewniając stopniowo coraz ściślejsze granice naszego oszacowania.  Rysunek pokazuje przykład tego, jak zmieniałby się przedział ufności w funkcji wielkości próby dla przykładu wagi. Na rysunku widać, że przedział ufności staje się coraz ciaśniejszy wraz ze wzrostem wielkości próbki, ale rosnące próbki zapewniają malejące zyski, zgodnie z faktem, że mianownik terminu przedziału ufności jest proporcjonalny do pierwiastka kwadratowego z wielkości próbki.
+
+
+``{r CISampSize,echo=FALSE,fig.cap="Przykład wpływu wielkości próbki na szerokość przedziału ufności dla średniej.",fig.width=4,fig.height=4,out.height='50%'}
+ssDf <-
+  tibble(sampSize=c(10,20,30,40,50,75,100,200,300,400,500)) %>%
+  mutate(
+    meanHeight=mean(NHANES_sample$Height),
+    ci.lower = meanHeight + qt(0.025,sampSize)*sd(NHANES_adult$Weight)/sqrt(sampSize),
+    ci.upper = meanHeight + qt(0.975,sampSize)*sd(NHANES_adult$Weight)/sqrt(sampSize)
+  )
+
+ggplot(ssDf, aes(sampSize, meanHeight)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = ci.lower, ymax = ci.upper), width = 0, size = 1) +
+  labs(
+    x = "Wielkość próby",
+    y = "Średnia wysokość"
+  )
+```
+
+### Obliczanie przedziałów ufności za pomocą bootstrapu
+
+W niektórych przypadkach nie możemy założyć normalności lub nie znamy rozkładu próbkowania statystyki.  W takich przypadkach możemy użyć bootstrapu (który wprowadziliśmy w rozdziale resampling-and-simulation).  Dla przypomnienia, bootstrap polega na wielokrotnym ponownym próbkowaniu danych *z zastąpieniem*, a następnie użyciu rozkładu statystyki obliczonego na tych próbkach jako surogatu dla rozkładu próbkowania statystyki.Oto wyniki, gdy używamy wbudowanej funkcji bootstrappingu w R, aby obliczyć przedział ufności dla wagi w naszej próbie NHANES:
+
+``{r echo=FALSE}
+# obliczanie bootstrapowych przedziałów ufności na danych dotyczących wagi w próbie NHANES
+
+meanWeight <- function(df, foo) {
+  return(mean(df[foo, ]$Weight))
+}
+
+bs <- boot(NHANES_sample, meanWeight, 1000)
+
+# użyj bootstrapu percentylowego
+bootci <- boot.ci(bs, type = "perc")
+print(bootci)
+```
+
+Te wartości są dość bliskie wartościom uzyskanym przy użyciu rozkładu t powyżej, choć nie dokładnie takie same.
+
+### Związek przedziałów ufności z testami hipotez
+
+Istnieje ścisły związek między przedziałami ufności a testami hipotez.  W szczególności, jeśli przedział ufności nie zawiera hipotezy zerowej, to związany z nim test statystyczny będzie statystycznie istotny.  Na przykład, jeśli testujesz, czy średnia z próby jest większa od zera przy $alfa = 0,05$, możesz po prostu sprawdzić, czy zero jest zawarte w 95% przedziale ufności dla średniej.
+
+Sprawy stają się bardziej skomplikowane, jeśli chcemy porównać średnie dwóch warunków [@sche:gent:2001]. Jest kilka sytuacji, które są jasne.  Po pierwsze, jeśli każda średnia zawiera się w przedziale ufności dla drugiej średniej, to na pewno nie ma istotnej różnicy na wybranym poziomie ufności.  Po drugie, jeśli przedziały ufności nie pokrywają się, to z pewnością istnieje istotna różnica na wybranym poziomie; w rzeczywistości test ten jest zasadniczo *konserwatywny*, tak że rzeczywisty poziom błędu będzie niższy niż wybrany poziom.  Ale co z przypadkiem, gdy przedziały ufności nakładają się na siebie, ale nie zawierają średnich dla drugiej grupy?  W tym przypadku odpowiedź zależy od względnej zmienności obu zmiennych i nie ma ogólnej odpowiedzi.  Jednak ogólnie należy unikać używania "testu oczu" dla nakładających się przedziałów ufności.
+
+``{r, echo=FALSE}
+# przykład nakładania się CI tutaj?
+```
+
+## Effect sizes
+
+> "Istotność statystyczna to najmniej interesująca rzecz w wynikach. Powinieneś opisać wyniki w kategoriach miar wielkości - nie tylko, czy leczenie wpływa na ludzi, ale jak bardzo na nich wpływa." Gene Glass, cytowany w [@Sullivan:2012ta].
+
+W poprzednim rozdziale omówiliśmy ideę, że znaczenie statystyczne niekoniecznie musi odzwierciedlać znaczenie praktyczne.  Aby omówić znaczenie praktyczne, potrzebujemy standardowego sposobu opisania wielkości efektu w odniesieniu do rzeczywistych danych, który określamy jako *wielkość efektu*.  W tym rozdziale przedstawimy to pojęcie i omówimy różne sposoby obliczania wielkości efektu.
+
+Wielkość efektu to znormalizowana miara, która porównuje wielkość jakiegoś efektu statystycznego do wielkości referencyjnej, takiej jak zmienność statystyki. W niektórych dziedzinach nauki i inżynierii pojęcie to określa się jako "stosunek sygnału do szumu".  Istnieje wiele różnych sposobów, na jakie można skwantyfikować wielkość efektu, które zależą od charakteru danych.
+
+### Cohen's D
+
+Jedną z najbardziej popularnych miar wielkości efektu jest *Cohen's d*, nazwany na cześć statystyka Jacoba Cohena (który jest najbardziej znany ze swojej pracy z 1994 roku zatytułowanej "The Earth Is Round (p < .05)").  Służy ona do ilościowego określenia różnicy między dwiema średnimi, w kategoriach ich odchylenia standardowego:
+
+$$
+d = \frac{bar{X}_1 - \s}
+$$
+
+gdzie $bar{X}_1$ i $bar{X}_2$ to średnie obu grup, a $s$ to zbiorcze odchylenie standardowe (będące kombinacją odchyleń standardowych dla obu prób, ważonych ich wielkością):
+
+$$
+s = \sqrt{frac{(n_1 - 1)s^2_1 + (n_2 - 1)s^2_2 }{n_1 +n_2 -2}}
+$$
+gdzie $n_1$ i $n_2$ to wielkości próbek, a $s^2_1$ i $s^2_2$ to odchylenia standardowe odpowiednio dla dwóch grup. Zauważ, że jest to bardzo podobne w duchu do statystyki t --- główna różnica polega na tym, że mianownik w statystyce t jest oparty na błędzie standardowym średniej, podczas gdy mianownik w Cohen's D jest oparty na odchyleniu standardowym danych.  Oznacza to, że o ile statystyka t będzie rosła wraz ze wzrostem liczebności próby, o tyle wartość D Cohena pozostanie taka sama.
+
+
+
+``{r dInterp, echo=FALSE}
+dInterp=tibble("D"=c('0.0 - 0.2',
+                     '0.2 - 0.5',
+                     '0.5 - 0.8',
+                     '0.8 - '),
+                   "Interpretacja"=c('neglibible','small','medium','large')
+                  )
+kable(dInterp, caption="Interpetacja D Cohena")
+```
+
+
+``{r echo=FALSE}
+# oblicz wielkość efektu dla różnicy płci w NHANES
+
+NHANES_sample <-
+  NHANES_adult %>%
+  drop_na(Wysokość) %>%
+  sample_n(250)
+
+hsum <-
+  NHANES_sample %>%
+  group_by(Płeć) %>%
+  summarize(
+    meanHeight = mean(Height),
+    varHeight = var(Height),
+    n = n()
+  )
+
+
+#połączone SD
+s_height_gender <- sqrt(
+  ((hsum$n[1] - 1) * hsum$varHeight[1] + (hsum$n[2] - 1) * hsum$varHeight[2]) / (hsum$n[1] + hsum$n[2] - 1) * hsum$varHeight[2])
+    (hsum$n[1] + hsum$n[2] - 2)
+)
+
+#cohen's d
+d_height_gender <- (hsum$meanHeight[2] - hsum$meanHeight[1]) / s_height_gender
+
+```
+
+Istnieje powszechnie stosowana skala interpretacji wielkości efektu w postaci d Cohena, przedstawiona w tabeli \u0026apos;. Przydatne może być przyjrzenie się niektórym powszechnie rozumianym efektom, aby pomóc zrozumieć te interpretacje.  Na przykład, wielkość efektu dla różnic płci w wysokości dorosłych (d = `r I(d_height_gender)`) jest bardzo duża przez odniesienie do naszej tabeli powyżej.  Możemy to również zobaczyć, patrząc na rozkłady wysokości mężczyzn i kobiet w próbce ze zbioru danych NHANES.  Rysunek ‖ (fig:genderHist) pokazuje, że te dwa rozkłady są dość dobrze rozdzielone, choć nadal się pokrywają, podkreślając fakt, że nawet gdy istnieje bardzo duża wielkość efektu dla różnicy między dwiema grupami, będą jednostki z każdej grupy, które są bardziej podobne do drugiej grupy.
+
+``{r genderHist,echo=FALSE,fig.cap="Wygładzone wykresy histogramów dla wzrostu mężczyzn i kobiet w zbiorze danych NHANES, pokazujące wyraźnie odrębne, ale również wyraźnie nakładające się rozkłady.",fig.width=4,fig.height=4,out.height='50%'}
+ggplot(NHANES_sample,aes(x=Height,color=Gender)) +
+  geom_density(size=1) +
+  theme(legend.position = c(0,0.8))
+
+```
+
+Warto również zauważyć, że w nauce rzadko spotykamy się z efektami tej wielkości, po części dlatego, że są to tak oczywiste efekty, że nie potrzebujemy badań naukowych, aby je znaleźć.  Jak zobaczymy w rozdziale \"doing-reproducible-research\" dotyczącym odtwarzalności, bardzo duże zgłoszone efekty w badaniach naukowych często odzwierciedlają stosowanie wątpliwych praktyk badawczych, a nie naprawdę ogromne efekty w naturze. Warto również zauważyć, że nawet w przypadku tak ogromnego efektu, obie dystrybucje wciąż się pokrywają - będzie kilka kobiet, które są wyższe niż przeciętny mężczyzna i odwrotnie. W przypadku większości interesujących efektów naukowych stopień nakładania się będzie znacznie większy, więc nie powinniśmy od razu wyciągać silnych wniosków na temat osób z różnych populacji na podstawie nawet dużej wielkości efektu.
+
+### Pearson's r
+
+Współczynnik r Pearsona, znany również jako *współczynnik korelacji*, jest miarą siły związku liniowego między dwiema zmiennymi ciągłymi.  Znacznie bardziej szczegółowo omówimy korelację w rozdziale \Modelowanie-relacji-ciągłych, więc zachowamy szczegóły dla tego rozdziału; tutaj po prostu wprowadzimy *r* jako sposób na ilościowe określenie związku między dwiema zmiennymi.
+
+*r* jest miarą, która zmienia się od -1 do 1, gdzie wartość 1 reprezentuje doskonałą dodatnią relację między zmiennymi, 0 reprezentuje brak relacji, a -1 reprezentuje doskonałą negatywną relację.  Na rysunku ̨ fig:corrFig przedstawiono przykłady różnych poziomów korelacji przy użyciu losowo wygenerowanych danych.
+
+`{r corrFig,echo=FALSE,fig.cap="Przykłady różnych poziomów r Pearsona",fig.width=9,fig.height=6,out.height='50%'}
+set.seed(123456789)
+p <- list()
+corrvals <- c(1,0.5,0,-0.5,-1)
+
+for (i in 1:length(corrvals)){
+  simdata <- data.frame(mvrnorm(n=50,mu=c(0,0),
+                  Sigma=matrix(c(1,corrvals[i],corrvals[i],1),2,2))
+                )
+  tmp <- ggplot(simdata,aes(X1,X2)) +
+    geom_point(size=0.5) +
+    ggtitle(sprintf('r = %.02f',cor(simdata)[1,2]))
+  p[[i]] = tmp
+}
+plot_grid(p[[1]],p[[2]],p[[3]],p[[4]],p[[5]])
+```
+
+### Współczynnik szans
+
+We wcześniejszej dyskusji o prawdopodobieństwie omawialiśmy pojęcie szans -- czyli względnego prawdopodobieństwa zajścia jakiegoś zdarzenia w stosunku do jego nie zajścia:
+
+$$
+iloraz szans A = ﬁrma{P(A)}{P(ﬁrma A)}
+$$
+
+Omówiliśmy również *odds ratio*, który jest po prostu stosunkiem dwóch szans. Współczynnik szans jest użytecznym sposobem opisywania wielkości efektów dla zmiennych binarnych.
+
+Na przykład, weźmy przypadek palenia i raka płuc.  W badaniu opublikowanym w International Journal of Cancer w 2012 roku [@pesc:kend:gust:2012] połączono dane dotyczące występowania raka płuc u palaczy i osób, które nigdy nie paliły, pochodzące z wielu różnych badań.  Należy pamiętać, że dane te pochodzą z badań typu case-control, co oznacza, że uczestnicy badań byli rekrutowani, ponieważ albo mieli, albo nie mieli raka; następnie badano ich status palenia. Liczby te (przedstawione w tabeli \u0026apos; tab:smokingData) nie reprezentują więc częstości występowania raka wśród palaczy w populacji ogólnej -- ale mogą nam powiedzieć o związku między rakiem a paleniem.
+
+``{r smokingData, echo=FALSE}
+# utwórz tabelę występowania raka w zależności od statusu palenia
+smokingDf <- tibble(
+  Status = c("No Cancer", "Cancer"),
+  NeverSmoked = c(2883, 220),
+  CurrentSmoker = c(3829, 6784),
+)
+kable(smokingDf, caption="Występowanie raka płuca oddzielnie dla aktualnych palaczy i tych, którzy nigdy nie palili")
+```
+
+
+``{r echo=FALSE}
+# konwersja danych o paleniu na szanse
+
+smokingDf <-
+  smokingDf %>%
+  mutate(
+    pNeverSmoked = NeverSmoked / sum(NeverSmoked),
+    pCurrentSmoker = CurrentSmoker / suma(CurrentSmoker)
+  )
+
+oddsCancerNeverSmoked <- smokingDf$NeverSmoked[2] / smokingDf$NeverSmoked[1]
+oddsCancerCurrentSmoker <- smokingDf$CurrentSmoker[2] / smokingDf$CurrentSmoker[1]
+
+oddsRatio <- oddsCancerCurrentSmoker/oddsCancerNeverSmoked
+
+```
+
+Możemy przekształcić te liczby na współczynniki szans dla każdej z grup.  Szanse na to, że osoba niepaląca będzie miała raka płuc wynoszą `r I(oddsCancerNeverSmoked)`, natomiast szanse na to, że osoba aktualnie paląca będzie miała raka płuc wynoszą `r I(oddsCancerCurrentSmoker)`.  Stosunek tych szans mówi nam o względnym prawdopodobieństwie wystąpienia raka pomiędzy dwoma grupami: Stosunek szans `r I(oddsRatio)` mówi nam, że szanse zachorowania na raka płuc u palaczy są mniej więcej 23 razy większe niż u osób nigdy niepalących.
+
+## Moc statystyczna
+
+Pamiętasz z poprzedniego rozdziału, że w ramach podejścia Neymana-Pearsona do testowania hipotez musimy określić nasz poziom tolerancji dla dwóch rodzajów błędów: Fałszywie dodatnich (które nazwali *błędem typu I*) i fałszywie ujemnych (które nazwali *błędem typu II*). Ludzie często skupiają się na błędzie typu I, ponieważ fałszywe pozytywne twierdzenie jest ogólnie postrzegane jako bardzo zła rzecz; na przykład, obecnie zdyskredytowane twierdzenia @wake:1999, że autyzm był związany ze szczepieniami, doprowadziły do nastrojów antyszczepionkowych, które spowodowały znaczny wzrost chorób dziecięcych, takich jak odra.  Podobnie nie chcemy twierdzić, że lek leczy chorobę, jeśli naprawdę tak nie jest.  Dlatego tolerancję dla błędów typu I ustala się na ogół dość nisko, zwykle na poziomie $alfa = 0,05$.  Ale co z błędami typu II?  
+
+Pojęcie *mocy statystycznej* jest dopełnieniem błędu typu II -- czyli jest to prawdopodobieństwo znalezienia pozytywnego wyniku, biorąc pod uwagę, że istnieje:
+
+$$
+moc = 1 - ¨beta¨
+$$
+
+Innym ważnym aspektem modelu Neymana-Pearsona, którego nie omawialiśmy wcześniej, jest fakt, że oprócz określenia dopuszczalnych poziomów błędu I i II rodzaju musimy również opisać konkretną hipotezę alternatywną -- czyli jaka jest wielkość efektu, który chcemy wykryć?   W przeciwnym razie nie możemy interpretować $beta$ - prawdopodobieństwo znalezienia dużego efektu będzie zawsze wyższe niż znalezienia małego efektu, więc $beta$ będzie się różnić w zależności od wielkości efektu, który próbujemy wykryć.
+
+Istnieją trzy czynniki, które mogą wpływać na moc statystyczną:
+
+- Wielkość próby: Większe próby zapewniają większą moc statystyczną
+- Wielkość efektu: Dany projekt zawsze będzie miał większą moc do znalezienia dużego efektu niż małego efektu (ponieważ znalezienie dużych efektów jest łatwiejsze)
+- Poziom błędu typu I: Istnieje związek między błędem typu I a mocą taki, że (przy wszystkich innych założeniach) zmniejszenie błędu typu I spowoduje również zmniejszenie mocy.
+
+Możemy to zobaczyć poprzez symulację.  Najpierw zasymulujmy pojedynczy eksperyment, w którym porównujemy średnie dwóch grup za pomocą standardowego testu t.  Zmienimy wielkość efektu (określoną w kategoriach d Cohena), poziom błędu typu I oraz wielkość próby i dla każdego z nich zbadamy, jak wpływa to na odsetek istotnych wyników (czyli moc). Rysunek ‖ (fig:plotPowerSim) pokazuje przykład, jak moc zmienia się w funkcji tych czynników.  
+
+`{r powerSim, echo=FALSE}
+# Symulacja mocy jako funkcji wielkości próby, wielkości efektu i alfa
+
+# utwórz zestaw funkcji do generowania symulowanych wyników
+powerDf <-
+  expand.grid(
+    sampSizePerGroup = c(12, 24, 48, 96),
+    effectSize = c(.2, .5, .8),
+    alpha = c(0.005, 0.05)
+  ) %>%
+  tidyr::expand(effectSize, sampSizePerGroup, alfa) %>%
+  group_by(effectSize, sampSizePerGroup, alfa)
+
+runPowerSim <- function(df, nsims = 1000) {
+  p <- array(NA, dim = nsims)
+  for (s in 1:nsims) {
+    data <- data.frame(
+      y = rnorm(df$sampSizePerGroup * 2),
+      group = array(0, dim = df$sampSizePerGroup * 2)
+    )
+
+    data$group[1:df$sampSizePerGroup] <- 1
+    data$y[data$group == 1] <- data$y[data$group == 1] + df$effectSize
+    tt <- t.test(y ~ grupa, dane = dane)
+    p[s] <- tt$p.value
+  }
+  return(data.frame(power = mean(p < df$alpha)))
+}
+
+# uruchom symulację
+powerSimResults <- powerDf %>%
+  do(runPowerSim(.))
+
+```
+
+
+``{r plotPowerSim,echo=FALSE,fig.cap="Wyniki symulacji mocy, pokazujące moc jako funkcję wielkości próby, z wielkościami efektów pokazanymi jako różne kolory i alfa pokazanymi jako typ linii. Standardowe kryterium 80-procentowej mocy jest pokazane przez czarną przerywaną linię.",fig.width=6,fig.height=4,out.height='50%'}
+ggplot(powerSimResults,
+       aes(sampSizePerGroup,power,color=as.factor(effectSize),linetype=as.factor(alpha))) +
+  geom_line(size=1) +
+  annotate('segment',x=0,xend=max(powerDf$sampSizePerGroup),
+           y=0,8,yend=0,8,linetype='dotted',size=.5) +
+  scale_x_continuous( breaks=unique(powerDf$sampSizePerGroup)) +
+  labs(
+    color = "Effect size",
+    x = "Wielkość próbki",
+    y = "Moc",
+    linetype = "alfa"
+  )
+```
+
+Ta symulacja pokazuje nam, że nawet przy wielkości próby 96, będziemy mieli stosunkowo małą moc, aby znaleźć mały efekt ($d = 0,2$) z $alfa = 0,005$.  Oznacza to, że badanie zaprojektowane w tym celu byłoby *futile* - to znaczy, że jest prawie gwarantowane, że nie znajdzie nic, nawet jeśli istnieje prawdziwy efekt tej wielkości.
+
+Istnieją co najmniej dwa ważne powody, aby dbać o moc statystyczną. Po pierwsze, jeśli jesteś badaczem, prawdopodobnie nie chcesz spędzać swojego czasu na robieniu daremnych eksperymentów.  Prowadzenie badań o zbyt małej mocy jest w zasadzie daremne, ponieważ oznacza, że istnieje bardzo małe prawdopodobieństwo znalezienia efektu, nawet jeśli on istnieje. Po drugie, okazuje się, że wszelkie pozytywne wnioski, które pochodzą z badania o zbyt małej mocy, są bardziej prawdopodobne, że będą fałszywe w porównaniu z badaniem o dużej mocy, co omawiamy bardziej szczegółowo w rozdziale \@ref(doing-reproducible-research).
+
+### Analiza mocy
+
+Na szczęście dostępne są narzędzia, które pozwalają nam określić moc statystyczną eksperymentu. Najczęstszym zastosowaniem tych narzędzi jest planowanie eksperymentu, kiedy chcielibyśmy określić, jak duża musi być nasza próba, aby mieć wystarczającą moc do znalezienia interesującego nas efektu.
+
+Załóżmy, że jesteśmy zainteresowani przeprowadzeniem badania, jak konkretna cecha osobowości różni się między użytkownikami urządzeń z systemem iOS i Android.  Nasz plan to zebrać dwie grupy osób i zmierzyć je na cechę osobowości, a następnie porównać dwie grupy za pomocą testu t.  W tym przypadku uważalibyśmy, że średni efekt ($d = 0,5$) jest przedmiotem zainteresowania naukowego, więc użyjemy tego poziomu do naszej analizy mocy.  Aby określić niezbędną wielkość próby, możemy użyć funkcji mocy z naszego oprogramowania statystycznego:
+
+``{r echo=FALSE}
+power.t.test(d = 0,5, power = 0,8, sig.level = 0,05)
+```
+
+To mówi nam, że potrzebowalibyśmy co najmniej 64 uczestników w każdej grupie, aby mieć wystarczającą moc do znalezienia średniej wielkości efektu.  Zawsze ważne jest przeprowadzenie analizy mocy przed rozpoczęciem nowego badania, aby upewnić się, że badanie nie będzie daremne z powodu zbyt małej próby.
+
+Być może przyszło Ci do głowy, że jeśli wielkość efektu jest wystarczająco duża, to niezbędna próba będzie bardzo mała.  Na przykład, jeśli przeprowadzimy tę samą analizę mocy z wielkością efektu d=2, to zobaczymy, że potrzebujemy tylko około 5 osób w każdej grupie, aby mieć wystarczającą moc do znalezienia różnicy.  
+
+``{r echo=FALSE}
+pwr.t.test(d = 2, power = 0.8, sig.level = 0.05)
+```
+
+Jednak w nauce rzadko przeprowadza się eksperyment, w którym spodziewamy się znaleźć tak duży efekt -- podobnie jak nie potrzebujemy statystyk, aby powiedzieć nam, że 16-latkowie są wyżsi niż 6-latkowie.  Kiedy przeprowadzamy analizę mocy, musimy określić wielkość efektu, która jest wiarygodna i/lub naukowo interesująca dla naszego badania, co zwykle pochodzi z poprzednich badań.  Jednak w rozdziale ™@ref(doing-reproducible-research) omówimy zjawisko znane jako "klątwa zwycięzcy", które prawdopodobnie powoduje, że opublikowane wielkości efektów są większe niż prawdziwe, więc należy o tym pamiętać.  
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś być w stanie:
+
+* Opisać właściwą interpretację przedziału ufności i obliczyć przedział ufności dla średniej z danego zbioru danych.
+* Zdefiniować pojęcie wielkości efektu i obliczyć wielkość efektu dla danego testu.
+* Opisać pojęcie mocy statystycznej i dlaczego jest ona ważna dla badań.
+
+
+## Sugerowane lektury.
+
+- Robust misinterpretation of confidence intervals, by Hoekstra et al.](http://www.ejwagenmakers.com/inpress/HoekstraEtAlPBR.pdf)

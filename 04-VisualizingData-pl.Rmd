@@ -1,0 +1,374 @@
+---
+wyjście:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+  html_document: default
+---
+
+# Wizualizacja danych {#data-visualization}
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(cowplot)
+library(knitr)
+library(NHANES)
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES=NHANES %>% dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES$isChild <- NHANES$Age<18
+
+NHANES_adult=NHANES %>%
+  drop_na(Height) %>%
+  subset(subset=Age>=18)
+
+# setup colorblind palette
+# z http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette
+# Paleta z szarością:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+```
+
+28 stycznia 1986 roku prom kosmiczny Challenger eksplodował 73 sekundy po starcie, zabijając wszystkich 7 astronautów na pokładzie.  Jak w przypadku każdej tego typu katastrofy, przeprowadzono oficjalne śledztwo w sprawie przyczyn wypadku, w wyniku którego stwierdzono, że rozszczelnił się O-ring łączący dwie sekcje solid rocket booster, co spowodowało awarię połączenia i eksplozję dużego zbiornika z paliwem ciekłym (patrz rysunek \u0026.pl).
+
+``{r srbLeak, echo=FALSE,fig.cap="Obraz wyciekającego paliwa z boostera rakiety stałej, na sekundy przed eksplozją. Mały płomień widoczny z boku rakiety to miejsce awarii O-ringu. By NASA (Great Images in NASA Description) [Public domain], via Wikimedia Commons",fig.height=3,out.height='20%'}
+knitr::include_graphics("images/Booster_Rocket_Breach_-_GPN-2000-001425.jpg")
+```
+
+Dochodzenie wykazało, że wiele aspektów procesu decyzyjnego NASA było wadliwych, a w szczególności skupiło się na spotkaniu pracowników NASA i inżynierów z Morton Thiokol, wykonawcy, który zbudował solidne boostery rakietowe. Inżynierowie ci byli szczególnie zaniepokojeni, ponieważ przewidywano bardzo niskie temperatury rano w dniu startu, a mieli dane z poprzednich startów pokazujące, że wydajność O-ringów była zagrożona w niższych temperaturach. Na spotkaniu w wieczór poprzedzający start inżynierowie przedstawili swoje dane kierownictwu NASA, ale nie byli w stanie przekonać ich do przełożenia startu. Ich dowodem był zestaw ręcznie napisanych slajdów pokazujących liczby z różnych poprzednich startów.
+
+Ekspert od wizualizacji Edward Tufte twierdzi, że dzięki odpowiedniej prezentacji wszystkich danych, inżynierowie mogliby być znacznie bardziej przekonujący.  W szczególności mogli pokazać liczbę taką jak ta na rysunku \u200, która podkreśla dwa ważne fakty. Po pierwsze, pokazuje on, że ilość uszkodzeń O-ringów (zdefiniowana przez ilość erozji i sadzy znalezionej na zewnątrz pierścieni po tym jak boostery rakiet na paliwo stałe zostały wyciągnięte z oceanu w poprzednich lotach) była ściśle związana z temperaturą przy starcie.  Po drugie, pokazuje, że zakres prognozowanych temperatur dla poranka 28 stycznia (pokazany w zacienionym obszarze) był znacznie poza zakresem wszystkich poprzednich startów.  Choć nie możemy wiedzieć tego na pewno, wydaje się przynajmniej prawdopodobne, że mogło to być bardziej przekonujące.
+
+``{r challengerTemps, echo=FALSE,fig.cap="A replotting of Tufte's damage index data. Linia pokazuje trend w danych, a zacieniona plama pokazuje prognozowane temperatury na poranek startu.",fig.width=8,fig.height=4,out.height='50%'}
+oringDf <- read.table("data/orings.csv", sep = ",", header = TRUE)
+
+oringDf %>%
+  ggplot(aes(x = Temperature, y = DamageIndex)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, span = 1) + ylim(0, 12) +
+  geom_vline(xintercept = 27.5, size =8, alpha = 0.3, color = "red") +
+  labs(
+    y = "Wskaźnik uszkodzeń",
+    x = "Temperatura w momencie startu"
+  ) +
+  scale_x_continuous(breaks = seq.int(25, 85, 5)) +
+  annotate(
+    "text",
+    angle=90,
+    x = 27.5,
+    y = 6,
+    label = "Prognozowana temperatura na 28 stycznia",
+    size = 5
+  )
+```
+
+## Anatomia wykresu
+
+Celem wykreślania danych jest przedstawienie podsumowania zbioru danych w dwuwymiarowej (lub czasami trójwymiarowej) prezentacji.  Wymiary te nazywamy *osiami* - oś pozioma jest nazywana *osią X*, a oś pionowa *osią Y*.  Możemy ułożyć dane wzdłuż osi w taki sposób, by podkreślić wartości danych. Wartości te mogą być ciągłe lub kategoryczne.
+
+Istnieje wiele różnych typów wykresów, których możemy użyć, a które mają różne zalety i wady.  Powiedzmy, że jesteśmy zainteresowani scharakteryzowaniem różnicy wzrostu między mężczyznami i kobietami w zbiorze danych NHANES. Rysunek \u0026aposiada cztery różne sposoby wykreślania tych danych.
+
+1. Wykres słupkowy w panelu A pokazuje różnicę średnich, ale nie pokazuje nam, jak duży jest rozrzut w danych wokół tych średnich - a jak zobaczymy później, wiedza o tym jest niezbędna do określenia, czy uważamy, że różnica między grupami jest wystarczająco duża, aby być ważna.  
+2. Drugi wykres pokazuje słupki z nałożonymi na siebie wszystkimi punktami danych - dzięki temu widać nieco wyraźniej, że rozkłady wzrostu kobiet i mężczyzn pokrywają się, ale nadal trudno to dostrzec ze względu na dużą liczbę punktów danych.  
+
+Ogólnie rzecz biorąc, wolimy używać techniki wykreślania, która zapewnia wyraźniejszy widok rozkładu punktów danych.  
+
+3. W panelu C widzimy jeden przykład *violin plot*, który wykreśla rozkład danych w każdym stanie (po lekkim wygładzeniu).  
+4. Inną opcją jest *box plot* pokazany w panelu D, który pokazuje medianę (linia centralna), miarę zmienności (szerokość pudełka, która jest oparta na miarze zwanej rozstępem międzykwartylowym) oraz wszelkie wartości odstające (zauważone przez punkty na końcach linii). Są to efektywne sposoby pokazywania danych, które dają dobre wyczucie ich rozkładu.
+
+``{r plotHeight,echo=FALSE,fig.cap="Cztery różne sposoby wykreślania różnicy wzrostu między mężczyznami i kobietami w zestawie danych NHANES.  Panel A wykreśla średnie obu grup, co nie daje możliwości oceny względnego nakładania się obu dystrybucji.  Panel B pokazuje te same słupki, ale także nakłada punkty danych, przesuwając je, abyśmy mogli zobaczyć ich ogólny rozkład.  Panel C pokazuje wykres skrzypcowy, który pokazuje rozkład zbiorów danych dla każdej grupy.  Panel D pokazuje wykres pudełkowy, który podkreśla rozpiętość rozkładu wraz z wszelkimi wartościami skrajnymi (które są pokazane jako pojedyncze punkty)."}
+# wykres wysokości według płci
+dfmean=NHANES_adult %>%
+  group_by(Płeć) %>%
+  summarise(Height=mean(Height))
+
+p1 = ggplot(dfmean,aes(x=Gender,y=Height)) +
+  geom_bar(stat="identity",color='gray') +
+  coord_cartesian(ylim=c(0,210)) +
+  ggtitle('Bar graph') +
+  theme(aspect.ratio=1)  
+
+p2 = ggplot(dfmean,aes(x=Gender,y=Height)) +
+  geom_bar(stat="identity",color='gray') +
+  coord_cartesian(ylim=c(0,210)) +
+  ggtitle('Bar graph with points') +
+  theme(aspect.ratio=1) +
+  geom_jitter(data=NHANES_adult,aes(x=Gender,y=Height),width=0.1,alpha=0.1)
+
+p3 = ggplot(NHANES_adult,aes(x=Gender,y=Height)) +
+  geom_violin() +
+  ggtitle('Violin plot') + theme(aspect.ratio=1)
+
+p4 = ggplot(NHANES_adult,aes(x=Gender,y=Height)) +
+  geom_boxplot() +  
+  ggtitle('Box plot') + theme(aspect.ratio=1)
+
+
+plot_grid(p1,p2,p3,p4,nrow=2,labels='AUTO')
+
+
+```
+
+
+## Zasady dobrej wizualizacji
+
+Na temat efektywnej wizualizacji danych napisano wiele książek.  Istnieją pewne zasady, co do których większość tych autorów się zgadza, podczas gdy inne są bardziej sporne. Tutaj podsumowujemy niektóre z głównych zasad; jeśli chcesz dowiedzieć się więcej, to kilka dobrych zasobów jest wymienionych w sekcji *Suggested Readings* na końcu tego rozdziału.
+
+### Pokaż dane i spraw, by się wyróżniały
+
+Powiedzmy, że przeprowadziłem badanie, w którym sprawdzałem związek między zdrowiem zębów a czasem spędzonym na nitkowaniu i chciałbym zwizualizować moje dane. Na rysunku ﬁrmy Fig:dentalFigs pokazano cztery możliwe prezentacje tych danych.  
+
+1. W panelu A nie pokazujemy właściwie danych, tylko linię wyrażającą związek między danymi.  To oczywiście nie jest optymalne, ponieważ nie możemy zobaczyć, jak wyglądają dane bazowe.  
+
+Panele B-D pokazują trzy możliwe wyniki wykreślenia rzeczywistych danych, gdzie każdy wykres pokazuje inny sposób, w jaki dane mogłyby wyglądać.
+
+2. Gdybyśmy zobaczyli wykres w panelu B, prawdopodobnie bylibyśmy podejrzliwi - rzadko kiedy prawdziwe dane podążają za tak precyzyjnym wzorem.  
+3. Dane w panelu C, z drugiej strony, wyglądają jak prawdziwe dane - pokazują ogólny trend, ale są niechlujne, jak to zwykle bywa z danymi na świecie.  
+4. Dane w panelu D pokazują nam, że pozorny związek między dwiema zmiennymi jest spowodowany wyłącznie przez jedną osobę, którą określilibyśmy mianem *outliera*, ponieważ wypada tak daleko poza wzorzec reszty grupy. Powinno być jasne, że prawdopodobnie nie chcemy wyciągać zbyt wielu wniosków z efektu, który jest napędzany przez jeden punkt danych.  Ten rysunek podkreśla, dlaczego *zawsze* ważne jest, aby spojrzeć na surowe dane przed pokładaniem zbyt dużej wiary w jakiekolwiek podsumowanie danych.
+
+``{r dentalFigs,echo=FALSE,fig.cap="Cztery różne możliwe prezentacje danych dla przykładu zdrowia zębów. Każdy punkt na wykresie rozrzutu reprezentuje jeden punkt danych w zbiorze danych, a linia na każdym wykresie reprezentuje trend liniowy w danych."}
+
+set.seed(1234567)
+npts=12
+df=data.frame(x=seq(1,npts)) %>%
+  mutate(yClean=x + rnorm(npts,sd=0.1))
+pointSize=2
+t=theme(axis.text=element_text(size=10),axis.title=element_text(size=16))
+p1=ggplot(df,aes(x,yClean)) +
+  geom_smooth(method='lm',se=FALSE) + ylim(-5,20) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie') + t
+
+
+p2=ggplot(df,aes(x,yClean)) +
+  geom_point(size=pointSize) +
+  geom_smooth(method='lm',se=FALSE) + ylim(-5,20) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie') + t
+
+df = df %>%
+  mutate(yDirty=x+ rnorm(npts,sd=10))
+
+p3=ggplot(df,aes(x,yDirty)) +
+  geom_point(size=pointSize) +
+  geom_smooth(method='lm',se=FALSE)+ ylim(-5,20) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie') + t
+
+df = df %>%
+  mutate(yOutlier=rnorm(npts))
+df$yOutlier[npts]=200
+
+
+p4=ggplot(df,aes(x,yOutlier)) +
+  geom_point(size=pointSize) +
+  geom_smooth(method='lm',se=FALSE) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie') + t
+
+plot_grid(p1,p2,p3,p4,nrow=2,labels='AUTO')
+
+```
+
+### Maksymalizacja stosunku danych do atramentu
+
+Edward Tufte zaproponował pomysł zwany stosunkiem dane/ink:
+
+$$
+stosunek danych do atramentu = λfrac{ilość, of, ink, used, on, data}{total}, ilość, of, ink}.
+$$
+Chodzi o to, aby zminimalizować wizualny bałagan i pozwolić na pokazanie danych.  Na przykład, weźmy dwie prezentacje danych o zdrowiu zębów na rysunku \u0026apos; fig:dataInkExample). Obydwa panele pokazują te same dane, ale panel A jest znacznie łatwiejszy do zrozumienia, ze względu na relatywnie wyższy stosunek danych do atramentu.
+
+``{r dataInkExample,echo=FALSE,fig.cap="Przykład tych samych danych wykreślonych przy dwóch różnych stosunkach dane/ink.",fig.width=8,fig.height=4,out.height='50%'}
+p1 = ggplot(df,aes(x,yDirty)) +
+  geom_point(size=2) +
+  geom_smooth(method='lm',se=FALSE)+ ylim(-5,20) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie')
+
+p2 = ggplot(df,aes(x,yDirty)) +
+  geom_point(size=0.5) +
+  geom_smooth(method='lm',se=FALSE)+ ylim(-5,20) +
+  ylab('Zdrowie zębów') + xlab('Czas poświęcony na nitkowanie zębów') +
+  theme(panel.grid.major = element_line(color = "black",size=1)) +
+  theme(panel.grid.minor = element_line(color = "black",size=1))
+
+plot_grid(p1,p2,labels='AUTO',ncol=2)
+
+```
+
+### Unikaj chartjunk
+
+Szczególnie często można zobaczyć prezentacje danych w popularnych mediach, które są ozdobione dużą ilością elementów wizualnych, które są tematycznie związane z treścią, ale nie są związane z rzeczywistymi danymi.  Jest to znane jako *chartjunk* i powinno być unikane za wszelką cenę.
+
+Dobrym sposobem na uniknięcie "chartjunk" jest unikanie używania popularnych arkuszy kalkulacyjnych do wykreślania danych.  Na przykład, wykres na rysunku (stworzony przy użyciu programu Microsoft Excel) przedstawia względną popularność różnych religii w Stanach Zjednoczonych.  W tym wykresie są co najmniej trzy rzeczy nie tak:
+
+- na każdy słupek nałożona jest grafika, która nie ma nic wspólnego z rzeczywistymi danymi
+- ma rozpraszającą teksturę tła
+- używa trójwymiarowych słupków, które zniekształcają dane.
+
+``{r chartJunk,echo=FALSE,fig.width=4,fig.height=3,out.height='50%',out.width='80%',fig.cap="An example of chart junk."}
+knitr::include_graphics('images/excel_chartjunk.png')
+```
+
+### Unikaj zniekształcania danych
+
+Często można użyć wizualizacji do zniekształcenia przekazu zbioru danych.  Bardzo powszechne jest użycie różnych skalowań osi, aby albo wyolbrzymić, albo ukryć wzór danych.  Na przykład, powiedzmy, że interesuje nas, czy wskaźniki przestępczości z użyciem przemocy zmieniły się w USA.  Na rysunku \@ref(fig:crimePlotAxes), możemy zobaczyć te dane wykreślone w sposób, który albo sprawia wrażenie, że przestępczość pozostała na stałym poziomie, albo że spadła.  Te same dane mogą opowiadać dwie bardzo różne historie!
+
+
+``{r crimePlotAxes,echo=FALSE,fig.cap="Dane o przestępczości z lat 1990-2014 wykreślone w czasie.  Panele A i B pokazują te same dane, ale z różnymi zakresami wartości wzdłuż osi Y. Dane uzyskane z https://www.ucrdatatool.gov/Search/Crime/State/RunCrimeStatebyState.cfm",fig.width=8,fig.height=4,out.height='50%'}
+
+
+crimeData=read.table('data/CrimeStatebyState.csv',sep=',',header=TRUE) %>%
+  subset(Year > 1989) %>%
+  mutate(ViolentCrimePerCapita=Violent.crime.total/Population)
+
+p1 = ggplot(crimeData,aes(Year,ViolentCrimePerCapita)) +
+  geom_line() + ylim(-0.05,0.05)
+
+p2 = ggplot(crimeData,aes(Year,ViolentCrimePerCapita)) +
+  geom_line()
+
+
+plot_grid(p1,p2,labels='AUTO')
+```
+
+Jedną z większych kontrowersji w wizualizacji danych statystycznych jest sposób wyboru osi Y, a w szczególności to, czy powinna ona zawsze zawierać zero.  W swojej słynnej książce "Jak kłamać w statystyce" Darrell Huff stanowczo twierdził, że należy zawsze uwzględniać punkt zerowy na osi Y.  Z drugiej strony Edward Tufte argumentował przeciwko temu:
+
+> "Ogólnie rzecz biorąc, w szeregu czasowym użyj linii bazowej, która pokazuje dane, a nie punkt zerowy; nie wydawaj dużo pustej przestrzeni pionowej, próbując sięgnąć do punktu zerowego kosztem ukrycia tego, co dzieje się w samej linii danych." (z https://qz.com/418083/its-ok-not-to-start-your-y-axis-at-zero/)
+
+Z pewnością istnieją przypadki, w których używanie punktu zerowego nie ma żadnego sensu. Powiedzmy, że interesuje nas wykreślenie temperatury ciała dla danej osoby w czasie.  Na rysunku fig:bodyTempAxis wykreślamy te same (symulowane) dane z lub bez zera na osi Y. Powinno być oczywiste, że wykreślając te dane z zerem na osi Y (panel A) marnujemy dużo miejsca na rysunku, biorąc pod uwagę, że temperatura ciała żywej osoby nigdy nie może spaść do zera! Włączając zero, sprawiamy również, że pozorny skok temperatury w dniach 21-30 staje się znacznie mniej widoczny. Ogólnie rzecz biorąc, moja skłonność do wykresów liniowych i rozproszonych polega na wykorzystaniu całej przestrzeni na wykresie, chyba że punkt zerowy jest naprawdę ważny do podkreślenia.
+
+``{r bodyTempAxis,echo=FALSE,fig.cap="Temperatura ciała w czasie, wykreślona z lub bez punktu zerowego na osi Y.",fig.width=8,fig.height=4,out.height='50%'}
+bodyTempDf=data.frame(days=c(1:40),temp=rnorm(40)*0,3 + 98,6)
+bodyTempDf$temp[21:30]=bodyTempDf$temp[21:30]+3
+
+p1 = ggplot(bodyTempDf,aes(days,temp)) +
+  geom_line() +
+  ylim(0,105) +
+  labs(
+    y = "Temperatura ciała",
+    x = "Dzień pomiaru"
+    )
+p2 = ggplot(bodyTempDf,aes(days,temp)) +
+  geom_line() +
+  ylim(95,105) +
+  labs(
+    y = "Temperatura ciała",
+    x = "Dzień pomiaru"
+    )
+
+plot_grid(p1,p2)
+```
+
+Edward Tufte wprowadził pojęcie *lie factor*, aby opisać stopień, w jakim fizyczne różnice w wizualizacji odpowiadają wielkości różnic w danych. Jeśli grafika ma współczynnik kłamstwa bliski 1, to odpowiednio reprezentuje dane, natomiast współczynniki kłamstwa dalekie od 1 odzwierciedlają zniekształcenie danych bazowych.
+
+Współczynnik kłamstwa wspiera argument, że w wielu przypadkach należy zawsze uwzględniać punkt zerowy na wykresie słupkowym.  Na rysunku ∙ref(fig:barCharLieFactor) wykreślamy te same dane z i bez zera na osi Y.  W panelu A proporcjonalna różnica w obszarze między dwoma słupkami jest dokładnie taka sama jak proporcjonalna różnica między wartościami (tj. współczynnik kłamstwa = 1), natomiast w panelu B (gdzie zero nie jest uwzględnione) proporcjonalna różnica w obszarze między dwoma słupkami jest mniej więcej 2,8 razy większa niż proporcjonalna różnica w wartościach, a więc wizualnie wyolbrzymia wielkość różnicy.  
+
+``{r barCharLieFactor, echo=FALSE,fig.cap="Dwa wykresy słupkowe z powiązanymi współczynnikami kłamstwa.",fig.width=8,fig.height=4,out.height='50%'}
+p1 = ggplot(data.frame(y=c(100,95),x=c('stan 1','stan 2')),aes(x=x,y=y)) +
+  geom_col() +
+  ggtitle('czynnik kłamstwa = 1')
+
+p2 = ggplot(data.frame(y=c(100,95),x=c('warunek 1','warunek 2')),aes(x=x,y=y)) +
+  geom_col() +
+  coord_cartesian(ylim=c(92.5,105)) +
+  ggtitle('lie factor ~ 2.8')
+
+plot_grid(p1,p2,labels='AUTO')
+
+```
+
+
+## Dostosowywanie się do ludzkich ograniczeń
+
+Ludzie mają zarówno percepcyjne jak i poznawcze ograniczenia, które mogą sprawić, że niektóre wizualizacje będą bardzo trudne do zrozumienia. Ważne jest, aby zawsze mieć je na uwadze podczas budowania wizualizacji.
+
+### Ograniczenia percepcyjne
+
+Jednym z ważnych ograniczeń percepcyjnych, na które cierpi wiele osób (w tym ja) jest ślepota na kolory.  Może to bardzo utrudnić odbiór informacji w figurze (jak ta z rysunku \u2004), gdzie jest tylko kontrast kolorów między elementami, ale nie ma kontrastu jasności. Zawsze pomocne jest stosowanie elementów wykresu, które oprócz koloru różnią się znacznie jasnością i/lub teksturą.  Istnieją również palety ["colorblind-friendly"](http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette) dostępne do użycia z wieloma narzędziami wizualizacyjnymi.
+
+``{r badColors,echo=FALSE,fig.cap="Przykład złej figury, która opiera się wyłącznie na kontraście kolorów.",fig.width=8,fig.height=4,out.height='50%'}
+exampleDf = data.frame(value=c(3,5,4,6,2,5,8,8),
+                       v1=as.factor(c(1,1,2,2,3,3,4,4)),
+                       v2=as.factor(c(1,2,1,2,1,2,1,2)))
+ggplot(exampleDf,aes(v1,value)) +
+  theme_dark() +
+  geom_bar(aes(fill = v2), position = "dodge",stat='identity')
+```
+
+
+Nawet dla osób z idealnym widzeniem kolorów istnieją ograniczenia percepcyjne, które mogą sprawić, że niektóre działki będą nieskuteczne.  Jest to jeden z powodów, dla których statystycy *nigdy* nie używają wykresów kołowych: Dla człowieka może być bardzo trudne dokładne postrzeganie różnic w objętości kształtów. Wykres kołowy na rysunku (przedstawiający te same dane dotyczące przynależności religijnej, które pokazaliśmy powyżej) pokazuje, jak bardzo może to być zdradliwe.
+
+``{r pieChart,echo=FALSE,fig.cap="Przykład wykresu kołowego, podkreślający trudność w zrozumieniu względnej objętości różnych kawałków tortu.", fig.width=6,fig.height=6,out.height='50%'}
+knitr::include_graphics("images/religion_piechart.png")
+```
+
+Ta działka jest straszna z kilku powodów.  Po pierwsze, wymaga rozróżnienia dużej liczby kolorów z bardzo małych plam na dole figury.  Po drugie, perspektywa wizualna zniekształca względne liczby, tak że klin kołowy dla katolików wydaje się znacznie większy niż klin kołowy dla braku, podczas gdy w rzeczywistości liczba dla braku jest nieco większa (22,8 vs 20,8 procent), jak to było widoczne na rysunku \@ref(fig:chartJunk).  Po trzecie, poprzez oddzielenie legendy od grafiki, wymaga od widza utrzymywania informacji w pamięci roboczej w celu mapowania pomiędzy grafiką a legendą oraz przeprowadzania wielu "look-upów" w celu ciągłego dopasowywania etykiet legendy do wizualizacji.  I wreszcie, używa tekstu, który jest zbyt mały, co uniemożliwia jego odczytanie bez powiększenia.
+
+Wykreślając dane przy użyciu bardziej rozsądnego podejścia (rysunek \@ref(fig:religionBars)), możemy zobaczyć wzór znacznie wyraźniej. Ten wykres może nie wygląda tak krzykliwie jak wykres kołowy wygenerowany za pomocą Excela, ale jest znacznie bardziej efektywną i dokładną reprezentacją danych.
+
+``{r religionBars,echo=FALSE,fig.cap="Bardziej przejrzysta prezentacja danych dotyczących przynależności religijnej (uzyskanych z http://www.pewforum.org/religious-landscape-study/).",fig.width=8,fig.height=4,out.height='50%'}
+religionData=read.table('data/religion_data.txt',sep='ą')
+
+names(religionData)=c('Religia','Procent')
+religionData = arrange(religionData,desc(Percentage))
+religionData$Religion=factor(religionData$Religion,levels=religionData$Religion)
+ggplot(religionData,aes(Religion,Percentage,label=Percentage)) +
+  geom_bar(stat='identity') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Ta działka pozwala widzowi dokonać porównań na podstawie długości pasków wzdłuż wspólnej skali (oś y). Ludzie mają tendencję do bycia bardziej dokładnymi przy dekodowaniu różnic opartych na tych percepcyjnych elementach niż na podstawie obszaru lub koloru.
+
+## Korekcja dla innych czynników
+
+Często jesteśmy zainteresowani wykreślaniem danych, w których na interesującą nas zmienną wpływają inne czynniki niż ten, który nas interesuje.  Na przykład powiedzmy, że chcemy zrozumieć, jak zmieniała się cena benzyny w czasie.  Rysunek pokazuje historyczne dane dotyczące cen gazu, wykreślone z uwzględnieniem lub bez uwzględnienia inflacji. Podczas gdy dane nieskorygowane pokazują ogromny wzrost, dane skorygowane pokazują, że jest to w większości przypadków tylko odzwierciedlenie inflacji.  Inne przykłady, gdzie trzeba dostosować dane dla innych czynników obejmują wielkość populacji i dane zebrane w różnych porach roku.
+
+``{r gasPrices,echo=FALSE,message=FALSE, warning=FALSE,fig.cap="Cena benzyny w USA od 1930 do 2013 roku (uzyskana z http://www.thepeoplehistory.com/70yearsofpricechange.html) z korektą lub bez korekty o inflację (na podstawie Consumer Price Index).",fig.width=4,fig.height=4,out.height='50%'}
+
+# Consumer Price Index dane uzyskane z.
+# https://inflationdata.com/Inflation/Consumer_Price_Index/HistoricalCPI.aspx
+
+# załaduj dane CPI
+cpiData <- read_tsv('data/cpi_data.txt',
+                    col_names=FALSE) %>%
+  dplyr::select(X1, X14) %>%
+  rename(year = X1,
+         meanCPI = X14)
+
+# uzyskaj referencyjne cpi dla 1950 dolarów
+cpiRef <- cpiData %>%
+  filter(year==1950) %>%
+  pull(meanCPI)
+
+gasPriceData <- tibble(year=c(1930,1940,1950,1960,1970,1980,1990,2009,2013),
+                        Unadjusted=c(.10,.11,.18,.25,.36,1.19,1.34,2.05,3.80))
+
+allData <- left_join(gasPriceData,cpiData,by='year') %>%
+  mutate(Adjusted = Unadjusted/(meanCPI/cpiRef)) %>%
+  collect(key="Type", value="Price", -meanCPI, -year) %>%
+  mutate(Type=as.factor(Type))
+
+ggplot(allData,aes(year,Price,linetype=Type)) +
+  geom_line() +
+  ylab('Ceny benzyny') + xlab('Rok') +
+  theme(legend.position = c(0.2,0.6))
+```
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Opisać zasady, które odróżniają dobre i złe wykresy, oraz wykorzystać je do identyfikacji dobrych i złych wykresów.
+* Zrozumieć ludzkie ograniczenia, które należy uwzględnić, aby tworzyć efektywne wykresy.
+* Obiecaj, że nigdy nie stworzysz wykresu kołowego. *Ever*.
+
+
+## Sugerowane lektury i filmy
+
+- Podstawy wizualizacji danych*](https://serialmentor.com/dataviz/), autor: Claus Wilke
+- *Visual Explanations*, Edward Tufte
+- Wizualizacja danych*, William S. Cleveland
+- Projektowanie grafów dla oka i umysłu*, Stephen M. Kosslyn
+- Jak ludzie widzą dane*](https://www.youtube.com/watch?v=fSgEeI2Xpdc&feature=youtu.be), John Rauser

@@ -1,0 +1,218 @@
+---
+wyjście:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  html_document: default
+  pdf_document: default
+---
+# Praca z danymi {#working-with-data}
+
+``{r echo=FALSE}
+library(tidyverse)
+library(cowplot)
+```
+
+## Czym są dane?
+
+Pierwszym ważnym punktem dotyczącym danych jest to, że dane *są* - co oznacza, że słowo "dane" jest w liczbie mnogiej (choć niektórzy nie zgadzają się ze mną w tej kwestii).  Możesz też zastanawiać się, jak wymawiać "data" - ja mówię "day-tah", ale znam wielu ludzi, którzy mówią "dah-tah" i mimo to udało mi się z nimi zaprzyjaźnić. Teraz, gdybym usłyszał, że mówią "dane są", to byłby to większy problem...
+
+### Dane jakościowe
+Dane składają się ze *zmiennych*, gdzie zmienna odzwierciedla unikalny pomiar lub wielkość.  Niektóre zmienne są *jakościowe*, co oznacza, że opisują raczej jakość niż ilość liczbową.  Na przykład, na moim kursie statystyki zazwyczaj przeprowadzam wstępną ankietę, zarówno w celu uzyskania danych do wykorzystania na zajęciach, jak i po to, by dowiedzieć się więcej o studentach. Jedno z pytań, które zadaję, brzmi: "Jakie jest twoje ulubione jedzenie?", na co niektóre odpowiedzi brzmiały: jagody, czekolada, tamales, makaron, pizza i mango.  Dane te nie są wewnętrznie numeryczne; moglibyśmy przypisać każdemu z nich numery (1=borówki, 2=czekolada, itd.), ale używalibyśmy tylko numerów jako etykiet, a nie jako prawdziwych liczb.  To również ogranicza to, co powinniśmy zrobić z tymi liczbami; na przykład, nie miałoby sensu obliczanie średniej z tych liczb.  Jednak często będziemy kodować dane jakościowe za pomocą liczb, aby ułatwić sobie pracę z nimi, jak zobaczysz później.
+
+### Dane ilościowe
+W statystyce częściej będziemy pracować z danymi *ilościowymi*, czyli takimi, które są liczbowe.  Na przykład, tutaj Tabela \u0026apos; (tab:WhyTakingClass) pokazuje wyniki z innego pytania, które zadaję w mojej klasie wprowadzającej, które brzmi "Dlaczego bierzesz tę klasę?"
+
+``{r WhyTakingClass,echo=FALSE}
+# create table showing frequency of responses to question about why students
+# biorą udział w zajęciach ze statystyki
+
+classData=data.frame(why=c("It fulfills a degree plan requirement",
+                           "Spełnia wymóg ogólny",
+                           "Nie jest to wymagane, ale jestem zainteresowany tematem",
+                           "Inne"),
+                     nResponses=c(105,32,11,4))
+
+knitr::kable(
+  classData, booktabs = TRUE,
+  caption = 'Counts of the prevalence of different responses to the question "Why are you taking this class?"',
+  col.names=c("Dlaczego chodzisz na te zajęcia?", "Liczba uczniów")
+)
+```
+
+Zauważ, że odpowiedzi studentów były jakościowe, ale wygenerowaliśmy ich ilościowe podsumowanie, licząc ilu studentów udzieliło każdej odpowiedzi.  
+
+#### Rodzaje liczb
+Istnieje kilka różnych typów liczb, z którymi pracujemy w statystyce.  Ważne jest, aby zrozumieć te różnice, częściowo dlatego, że języki analizy statystycznej (takie jak R) często je rozróżniają.
+
+**Liczby binarne**. Najprostsze są liczby binarne - to znaczy zero lub jeden.  Często będziemy używać liczb binarnych do reprezentowania, czy coś jest prawdą czy fałszem, czy jest obecne czy nie.  Na przykład mogę zapytać 10 osób, czy kiedykolwiek doświadczyły migrenowego bólu głowy, zapisując ich odpowiedzi jako "Tak" lub "Nie".  Często warto używać *logicznych* wartości, które przyjmują wartość ``TRUE`` lub ``FALSE``.  Może to być szczególnie przydatne, gdy zaczynamy używać języków programowania takich jak R do analizy naszych danych, ponieważ te języki już rozumieją pojęcia TRUE i FALSE.  W rzeczywistości większość języków programowania traktuje wartości prawdy i liczby binarne równoważnie. Liczba 1 jest równa wartości logicznej ``TRUE``, a liczba zero jest równa wartości logicznej ``FALSE``.
+
+**Integry**.  Liczby całkowite to liczby całkowite bez części ułamkowej i dziesiętnej. Najczęściej spotykamy się z liczbami całkowitymi, gdy liczymy rzeczy, ale często występują one również w pomiarach psychologicznych.  Na przykład, w mojej ankiecie wprowadzającej podaję zestaw pytań dotyczących stosunku do statystyki (takich jak "Statystyka wydaje mi się bardzo tajemnicza."), na które studenci odpowiadają liczbą z przedziału od 1 ("Zdecydowanie się nie zgadzam") do 7 ("Zdecydowanie się zgadzam").  
+
+**Realne liczby**.  Najczęściej w statystyce pracujemy z liczbami rzeczywistymi, które mają część ułamkową/ dziesiętną.  Na przykład, możemy zmierzyć czyjąś wagę, która może być mierzona z dowolną dokładnością, od kilogramów do mikrogramów.
+
+## Pomiary dyskretne a ciągłe
+
+Pomiar *dyskretny* to taki, który przyjmuje jedną ze skończonego zbioru określonych wartości.  Mogą to być wartości jakościowe (np. różne rasy psów) lub wartości liczbowe (np. ilu ktoś ma znajomych na Facebooku).  Co ważne, nie ma środka między tymi pomiarami; nie ma sensu mówić, że ktoś ma 33,7 przyjaciół.
+
+Pomiar *ciągły* to taki, który jest zdefiniowany w kategoriach liczby rzeczywistej. Może ona mieścić się w dowolnym miejscu określonego zakresu wartości, choć zazwyczaj nasze narzędzia pomiarowe ograniczają precyzję, z jaką możemy ją zmierzyć; na przykład waga podłogowa może mierzyć wagę z dokładnością do kilograma, choć teoretycznie można ją mierzyć z dużo większą precyzją.
+
+Na kursach statystyki często omawia się bardziej szczegółowo różne "skale" pomiarowe, które są omówione bardziej szczegółowo w dodatku do tego rozdziału.  Najważniejszym wnioskiem z tego jest to, że niektóre rodzaje statystyk nie mają sensu na niektórych rodzajach danych.  Na przykład, wyobraźmy sobie, że mamy zebrać dane dotyczące kodu pocztowego od pewnej liczby osób. Liczby te są reprezentowane jako liczby całkowite, ale w rzeczywistości nie odnoszą się do skali liczbowej; każdy kod pocztowy służy w zasadzie jako etykieta dla innego regionu. Z tego powodu nie miałoby sensu mówić na przykład o przeciętnym kodzie pocztowym.  
+
+## Co sprawia, że pomiar jest dobry?
+
+W wielu dziedzinach, takich jak psychologia, rzecz, którą mierzymy, nie jest cechą fizyczną, lecz nieobserwowalną koncepcją teoretyczną, którą zwykle nazywamy *konstrukcją*.  Na przykład, powiedzmy, że chcę sprawdzić, jak dobrze rozumiesz rozróżnienie między różnymi typami liczb opisanymi powyżej.  Mógłbym dać ci quiz, w którym zadałbym ci kilka pytań dotyczących tych pojęć i policzyłbym ile z nich odpowiedziałeś.  Taki test może, ale nie musi być dobrym pomiarem konstrukcji twojej rzeczywistej wiedzy - na przykład, jeśli napiszę test w sposób zagmatwany lub użyję języka, którego nie zrozumiesz, wtedy test może sugerować, że nie rozumiesz pojęć, podczas gdy tak naprawdę rozumiesz. Z drugiej strony, jeśli zrobię test wielokrotnego wyboru z bardzo oczywistymi błędnymi odpowiedziami, wtedy możesz uzyskać dobre wyniki w teście, nawet jeśli w rzeczywistości nie rozumiesz materiału.  
+
+Zazwyczaj niemożliwe jest zmierzenie konstruktu bez pewnej ilości błędów.  W powyższym przykładzie, możesz znać odpowiedź, ale możesz źle przeczytać pytanie i pomylić się.  W innych przypadkach błąd jest nierozerwalnie związany z mierzoną rzeczą, na przykład kiedy mierzymy czas reakcji osoby na prostym teście czasu reakcji, który będzie się różnił w zależności od próby z wielu powodów. Zwykle chcemy, aby nasz błąd pomiaru był jak najmniejszy, co możemy osiągnąć albo przez poprawę jakości pomiaru (na przykład, używając lepszego czasu do pomiaru czasu reakcji), albo przez uśrednienie z większej liczby pomiarów indvidiualnych.  
+
+Czasami istnieje standard, w stosunku do którego można przetestować inne pomiary, co możemy nazwać "złotym standardem" - na przykład, pomiar snu może być dokonany przy użyciu wielu różnych urządzeń (takich jak urządzenia mierzące ruch w łóżku), ale są one ogólnie uważane za gorsze od złotego standardu polisomnografii (która wykorzystuje pomiar fal mózgowych do ilościowego określenia czasu, jaki dana osoba spędza w każdej fazie snu).  Często złoty standard jest trudniejszy lub droższy do wykonania, a tańsza metoda jest stosowana, mimo że może być obarczona większym błędem.
+
+Kiedy zastanawiamy się nad tym, co czyni dobry pomiar, zwykle wyróżniamy dwa różne jego aspekty: powinien być *wiarygodny* i powinien być *ważny*.
+
+### Wiarygodność
+
+Wiarygodność odnosi się do spójności naszych pomiarów.  Jedna z popularnych form wiarygodności, znana jako "wiarygodność test-retest", mierzy jak dobrze pomiary zgadzają się, jeśli ten sam pomiar jest wykonywany dwa razy.  Na przykład, mogę dać ci dzisiaj kwestionariusz dotyczący twojego stosunku do statystyki, powtórzyć ten sam kwestionariusz jutro i porównać twoje odpowiedzi z tych dwóch dni; mielibyśmy nadzieję, że będą one bardzo podobne do siebie, chyba że pomiędzy tymi dwoma testami wydarzyło się coś, co powinno zmienić twój pogląd na statystykę (jak przeczytanie tej książki!).  
+
+Inny sposób oceny wiarygodności pojawia się w przypadkach, gdy dane zawierają subiektywne osądy.  Na przykład, powiedzmy, że badacz chce określić, czy leczenie zmienia to, jak dobrze dziecko autystyczne współdziała z innymi dziećmi, co jest mierzone przez posiadanie ekspertów obserwujących dziecko i oceniających jego interakcje z innymi dziećmi.  W tym przypadku chcielibyśmy się upewnić, że odpowiedzi nie zależą od poszczególnych oceniających - to znaczy, chcielibyśmy, aby istniała wysoka *inter-rater reliability*.  Można to ocenić, zlecając przeprowadzenie oceny kilku osobom oceniającym, a następnie porównując ich oceny, aby upewnić się, że są one ze sobą zgodne.
+
+Rzetelność jest ważna, jeśli chcemy porównać jeden pomiar z drugim, ponieważ związek między dwiema różnymi zmiennymi nie może być silniejszy niż związek jednej ze zmiennych z samą sobą (tj. jej rzetelność).  Oznacza to, że nierzetelna miara nie może mieć silnego związku statystycznego z żadną inną miarą.  Z tego powodu badacze opracowujący nowy pomiar (taki jak nowa ankieta) często zadają sobie wiele trudu, aby ustalić i poprawić jego rzetelność.
+
+``{r ReliabilityValidity, echo=FALSE,fig.cap="Rysunek demonstrujący rozróżnienie między rzetelnością a rzetelnością, wykorzystujący strzały do celu. Wiarygodność odnosi się do spójności lokalizacji strzałów, a ważność do dokładności strzałów w odniesieniu do środka tarczy. ",fig.width=6,fig.height=6,out.height='33%'}
+# Figure inspired by https://commons.wikimedia.org/wiki/File:Reliability_and_validity.svg
+
+# z https://stackoverflow.com/questions/6862742/draw-a-circle-with-ggplot2
+
+set.seed(12345)
+gg_circle <- function(r, xc, yc, color="black", fill=NA, ...) {
+    x <- xc + r*cos(seq(0, pi, length.out=100))
+    ymax <- yc + r*sin(seq(0, pi, length.out=100))
+    ymin <- yc + r*sin(seq(0, -pi, length.out=100))
+    annotate("ribbon", x=x, ymin=ymin, ymax=ymax, color=color, fill=fill, ...)
+}
+
+
+npoints <- 16
+rel_mult <- 0.75
+unrel_mult <- 2.5
+
+plotDf <- tibble(
+  X_RelVal = rnorm(npoints)*rel_mult,
+  Y_RelVal = rnorma(n punktów)*rel_mult,
+  X_RelInval = rnorm(npoints)*rel_mult+2,
+  Y_RelInval = rnorma(n punktów)*rel_mult+2,
+  X_UnrelInval = rnorm(npoints)*unrel_mult+2,
+  Y_UnrelInval = rnorm(npoints)*unrel_mult+2,
+  X_UnrelVal = rnorm(npoints)*unrel_mult,
+  Y_UnrelVal = rnorm(npoints)*unrel_mult
+)
+
+pointsize <- 3
+linesize=2
+p1=ggplot(plotDf,aes(X_RelVal,Y_RelVal)) +
+  gg_circle(r=4, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=3, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=2, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=1, xc=0.0, yc=0.0,size=linesize,color='red',fill='red') +
+  geom_point(size=pointsize) +
+  xlim(-10,10) + ylim(-10,10) +
+  theme_void()
+
+p2=ggplot(plotDf,aes(X_UnrelVal,Y_UnrelVal)) +
+  gg_circle(r=4, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=3, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=2, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=1, xc=0.0, yc=0.0,size=linesize,color='red',fill='red') +
+  geom_point(size=pointsize) +
+  xlim(-10,10) + ylim(-10,10) +
+  theme_void()
+
+p3=ggplot(plotDf,aes(X_RelInval,Y_RelInval)) +
+  gg_circle(r=4, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=3, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=2, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=1, xc=0.0, yc=0.0,size=linesize,color='red',fill='red') +
+  geom_point(size=pointsize) +
+  xlim(-10,10) + ylim(-10,10) +
+  theme_void()
+
+p4=ggplot(plotDf,aes(X_UnrelInval,Y_UnrelInval)) +
+  gg_circle(r=4, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=3, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=2, xc=0.0, yc=0.0,size=linesize,color='red') +
+  gg_circle(r=1, xc=0.0, yc=0.0,size=linesize,color='red',fill='red') +
+  geom_point(size=pointsize) +
+  xlim(-10,10) + ylim(-10,10) +
+  theme_void()
+
+plot_grid(p1,p2,p3,p4,ncol=2,label_size=12,
+          labels=c('A: Wiarygodne i ważne',
+                   'B: Niewiarygodne, ale ważne'
+                   'C: Wiarygodny, ale nieważny'
+                   'D: Niewiarygodny i nieważny'))
+
+
+```
+
+### Ważność
+
+Rzetelność jest ważna, ale sama w sobie nie wystarczy: W końcu mógłbym stworzyć doskonale wiarygodny pomiar na teście osobowości, przekodowując każdą odpowiedź przy użyciu tego samego numeru, niezależnie od tego, jak dana osoba faktycznie odpowiada.  Chcemy, aby nasze pomiary były również *ważne* --- to znaczy, chcemy się upewnić, że rzeczywiście mierzymy konstrukt, który uważamy za mierzony (rysunek \@ref(fig:ReliabilityValidity)). Istnieje wiele różnych rodzajów ważności, które są powszechnie omawiane; my skupimy się na trzech z nich.
+
+*Face validity*. Czy pomiar ma sens na pierwszy rzut oka?  Jeśli powiedziałbym Ci, że zamierzam zmierzyć ciśnienie krwi danej osoby, patrząc na kolor jej języka, prawdopodobnie pomyślałbyś, że nie jest to miara ważna z pozoru.  Z drugiej strony, użycie mankietu do mierzenia ciśnienia krwi miałoby moc sprawczą.  Jest to zazwyczaj pierwsza kontrola rzeczywistości, zanim przejdziemy do bardziej skomplikowanych aspektów ważności.
+
+*Ważność konstrukcyjna*.  Czy pomiar jest powiązany z innymi pomiarami w odpowiedni sposób?  Często dzieli się to na dwa aspekty.  *Ważność konwergencyjna* oznacza, że pomiar powinien być ściśle powiązany z innymi miarami, które mają odzwierciedlać ten sam konstrukt. Powiedzmy, że interesuje mnie pomiar ekstrawertyczności danej osoby za pomocą kwestionariusza lub wywiadu.  Ważność konwergencyjna będzie wykazana, jeśli oba te pomiary będą ze sobą ściśle powiązane.  Z drugiej strony, pomiary, które mają odzwierciedlać różne konstrukty, nie powinny być ze sobą powiązane, co nazywamy *ważnością rozbieżną*.  Jeśli moja teoria osobowości mówi, że ekstrawersja i sumienność są dwoma odrębnymi konstruktami, to powinienem również zauważyć, że moje pomiary ekstrawersji są *niepowiązane* z pomiarami sumienności.  
+
+*Ważność predykcyjna*.  Jeśli nasze pomiary są naprawdę ważne, to powinny również przewidywać inne wyniki.  Na przykład, powiedzmy, że uważamy, że psychologiczna cecha poszukiwania wrażeń (pragnienie nowych doświadczeń) jest związana z podejmowaniem ryzyka w świecie rzeczywistym.  Aby sprawdzić ważność predykcyjną pomiaru poszukiwania wrażeń, sprawdzilibyśmy, jak dobrze wyniki testu przewidują wyniki innego badania, które mierzy podejmowanie ryzyka w świecie rzeczywistym.
+
+## Cele nauki
+
+Po przeczytaniu tego rozdziału, powinieneś być w stanie:
+
+* Rozróżniać różne rodzaje zmiennych (ilościowe/jakościowe, binarne/integralne/rzeczywiste, dyskretne/ciągłe) i podać przykłady każdego z tych rodzajów zmiennych.
+* Rozróżnić pojęcia wiarygodności i ważności oraz zastosować każde z nich do konkretnego zbioru danych.
+
+
+## Sugerowane lektury
+
+- [*An Introduction to Psychometric Theory with Applications in R*](http://www.personality-project.org/r/book/) - darmowy podręcznik online na temat pomiarów psychologicznych.
+
+## Dodatek
+
+### Skale pomiarowe
+
+Wszystkie zmienne muszą przyjmować co najmniej dwie różne możliwe wartości (w przeciwnym razie byłyby *stałą*, a nie zmienną), ale różne wartości zmiennej mogą odnosić się do siebie na różne sposoby, które określamy jako *skale pomiaru*.  Istnieją cztery sposoby, na jakie mogą się różnić poszczególne wartości zmiennej.
+
+- *Identyczność*: Każda wartość zmiennej ma unikalne znaczenie.  
+- *Magnitude* (Wielkość): Wartości zmiennej odzwierciedlają różne wielkości i mają uporządkowany stosunek do siebie -- to znaczy, że niektóre wartości są większe, a niektóre mniejsze.
+- *Równe przedziały*: Jednostki wzdłuż skali pomiaru są sobie równe. Oznacza to na przykład, że różnica między 1 a 2 będzie równa w swej wielkości różnicy między 19 a 20.
+- *Zero bezwzględne*:  Skala ma prawdziwy znaczący punkt zerowy. Na przykład dla wielu pomiarów wielkości fizycznych, takich jak wzrost czy waga, jest to całkowity brak mierzonej rzeczy.
+
+Istnieją cztery różne skale pomiarowe, które idą w parze z tymi różnymi sposobami, w jakie wartości zmiennej mogą się różnić.
+
+*Skala nominalna*.  Zmienna nominalna spełnia kryterium tożsamości, tak że każda wartość zmiennej reprezentuje coś innego, ale liczby służą po prostu jako etykiety jakościowe, jak omówiono powyżej.  Na przykład, możemy zapytać ludzi o ich przynależność do partii politycznej, a następnie zakodować to jako liczby: 1 = "Republikanin", 2 = "Demokrata", 3 = "Libertarianin" itd. Jednak te różne liczby nie mają żadnego uporządkowanego związku ze sobą.  
+
+Skala *Ordinalna*. Zmienna porządkowa spełnia kryteria tożsamości i wielkości, tak że wartości można uporządkować pod względem ich wielkości.  Na przykład, możemy poprosić osobę z przewlekłym bólem, aby codziennie wypełniała formularz oceniający, jak silny jest jej ból, używając skali numerycznej 1-7. Zauważ, że podczas gdy osoba ta prawdopodobnie odczuwa większy ból w dniu, w którym podaje 6, w porównaniu z dniem, w którym podaje 3, nie ma sensu mówić, że jej ból jest dwa razy silniejszy w pierwszym dniu w porównaniu z drugim; uporządkowanie daje nam informacje o względnej wielkości, ale różnice między wartościami niekoniecznie są równe pod względem wielkości.
+
+*Skala interwałowa*. Skala interwałowa ma wszystkie cechy skali porządkowej, ale dodatkowo odstępy między jednostkami na skali pomiarowej mogą być traktowane jako równe.  Standardowym przykładem jest temperatura fizyczna mierzona w Celsjuszu lub Fahrenheicie; różnica fizyczna między 10 a 20 stopniami jest taka sama jak różnica fizyczna między 90 a 100 stopniami, ale każda skala może przyjmować również wartości ujemne.
+
+*Skala stosunkowa*. Zmienna w skali stosunkowej posiada wszystkie cztery cechy przedstawione powyżej: tożsamość, wielkość, równe przedziały i zero bezwzględne.  Różnica między zmienną skali stosunkowej a zmienną skali przedziałowej polega na tym, że zmienna skali stosunkowej ma prawdziwy punkt zerowy.  Przykładami zmiennych skali stosunkowej są wzrost i waga fizyczna oraz temperatura mierzona w Kelwinach.
+
+Istnieją dwa ważne powody, dla których musimy zwracać uwagę na skalę pomiaru danej zmiennej.  Po pierwsze, skala określa, jakiego rodzaju operacje matematyczne możemy zastosować do danych (patrz Tabela \N(tab:MeasurementTypes)).  Zmienna nominalna może być porównywana tylko pod względem równości; to znaczy, czy dwie obserwacje na tej zmiennej mają taką samą wartość liczbową?  Stosowanie innych operacji matematycznych do zmiennej nominalnej nie miałoby sensu, gdyż tak naprawdę nie funkcjonują one w zmiennej nominalnej jako liczby, a raczej jako etykiety.  W przypadku zmiennych porządkowych możemy również badać, czy jedna wartość jest większa lub mniejsza od drugiej, ale nie możemy wykonywać żadnych działań arytmetycznych.  Zmienne interwałowe i ratio pozwalają nam wykonywać arytmetykę; przy zmiennych interwałowych możemy jedynie dodawać i odejmować wartości, natomiast przy zmiennych ratio możemy również mnożyć i dzielić wartości.  
+
+``{r echo=FALSE,MeasurementTypes}
+
+measTypes=data.frame(equal=c('OK','OK','OK','OK'),
+                     gtlt=c('','OK'','OK'','OK''),
+                     addsub=c('','','OK'','OK''),
+                     multdiv=c('','','','OK''),
+                     row.names=c('Nominalny','Ordinal','Interwał','Ratio'))
+knitr::kable(
+  measTypes, booktabs = TRUE,
+  caption = 'Różne skale pomiarowe dopuszczają różne rodzaje operacji numerycznych',
+  col.names=c("Równe/nierówne",">/<", "+/-", "Mnożyć/podzielić")
+)
+
+
+```
+
+Ograniczenia te implikują również, że istnieją pewne rodzaje statystyk, które możemy obliczyć na każdym typie zmiennej.  Statystyki, które po prostu polegają na zliczaniu różnych wartości (takich jak najczęstsza wartość, znana jako *moda*), mogą być obliczane na każdym z typów zmiennych.  Inne statystyki opierają się na uporządkowaniu lub uszeregowaniu wartości (np. *mediana*, która jest wartością środkową, gdy wszystkie wartości są uporządkowane według ich wielkości) i wymagają one, aby wartość była przynajmniej w skali porządkowej.  Wreszcie statystyki, które polegają na sumowaniu wartości (takie jak *średnia*), wymagają, by zmienne były co najmniej na skali przedziałowej.  Należy zauważyć, że dość często badacze obliczają średnią zmiennych, które są tylko porządkowe (takie jak odpowiedzi w testach osobowości), ale czasami może to być problematyczne.  

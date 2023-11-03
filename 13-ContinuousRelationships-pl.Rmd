@@ -1,0 +1,427 @@
+---
+output:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+  html_document: default
+---
+# Modeling continuous relationships {#modeling-continuous-relationships}
+
+Most people are familiar with the concept of *correlation*, and in this chapter we will provide a more formal understanding for this commonly used and misunderstood concept.
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(fivethirtyeight)
+library(BayesFactor)
+library(bayestestR)
+library(cowplot)
+library(knitr)
+library(DiagrammeR)
+library(htmltools)
+library(webshot)
+library(DiagrammeRsvg)
+library(rsvg)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  drop_na(Weight) %>%
+  subset(Age>=18)
+
+```
+
+## Przykład: Przestępstwa z nienawiści i nierówności dochodowe
+
+W 2017 roku strona internetowa Fivethirtyeight.com opublikowała historię zatytułowaną [*Higher Rates Of Hate Crimes Are Tied To Income Inequality*](https://fivethirtyeight.com/features/higher-rates-of-hate-crimes-are-tied-to-income-inequality/), która omawiała związek między powszechnością przestępstw z nienawiści a nierównością dochodów w następstwie wyborów prezydenckich z 2016 roku. Historia ta relacjonowała analizę danych dotyczących przestępstw z nienawiści pochodzących z FBI i Southern Poverty Law Center, na podstawie której:
+
+> "stwierdziliśmy, że nierówność dochodów była najbardziej znaczącą determinantą dostosowanych do populacji przestępstw z nienawiści i incydentów z nienawiści w całych Stanach Zjednoczonych".  
+
+Dane do tej analizy są dostępne w ramach pakietu ``fivethirtyeight`` dla oprogramowania statystycznego R, co ułatwia nam dostęp do nich.  Analiza przedstawiona w tej historii skupiła się na związku między nierównością dochodów (zdefiniowaną przez wielkość zwaną *indeksem Giniego* --- więcej szczegółów w załączniku) a występowaniem przestępstw z nienawiści w każdym stanie.  
+
+## Czy nierówność dochodów ma związek z przestępstwami z nienawiści?
+
+
+``{r hateCrimeGini, fig.cap="Plot of rates of hate crimes vs. Gini index.",out.width='75%', echo=FALSE, fig.height=4, fig.width=4}
+
+hateCrimes <-.
+  hate_crimes %>%
+  mutate(state_abb = state.abb[match(state,state.name)]) %>%
+  drop_na(avg_hatecrimes_per_100k_fbi)
+
+hateCrimes$state_abb[hateCrimes$state="District of Columbia"]='DC'.
+
+ggplot(hateCrimes,aes(gini_index,avg_hatecrimes_per_100k_fbi,label=state_abb)) +.
+  geom_point() +
+  geom_text(aes(label=state_abb),hjust=0, vjust=0) +
+  theme(plot.title = element_text(size = 20, face = "bold")) +
+  xlab('Wskaźnik Giniego') +
+  ylab('Avg hate crimes per 100K population (FBI)') +
+  theme(plot.margin = unit(c(1,1,1), "cm")) +
+  xlim(0.4, 0.55)
+
+```
+
+Zależność między nierównościami dochodowymi a wskaźnikami przestępstw z nienawiści przedstawia rysunek \u0026.pl.
+Patrząc na dane, wydaje się, że między tymi dwiema zmiennymi może istnieć dodatni związek.  Jak możemy określić ilościowo ten związek?
+
+## Kowariancja i korelacja {#covariance-and-correlation}
+
+Jednym ze sposobów ilościowego określenia związku między dwiema zmiennymi jest *kowariancja*.  Pamiętaj, że wariancja dla pojedynczej zmiennej jest obliczana jako średnia różnica kwadratowa między każdym punktem danych a średnią:
+
+$$
+s^2 = ^frac{suma{i=1}^n (x_i - ^x})^2}{N - 1}.
+$$
+
+To mówi nam, jak daleko każda obserwacja jest od średniej, średnio w jednostkach kwadratowych.  Kowariancja mówi nam, czy istnieje związek między odchyleniami dwóch różnych zmiennych w poszczególnych obserwacjach.  Definiuje się ją jako:
+
+$$
+kowariancja = ˆfrac{suma{i=1}^n (x_i - ˆbar{x})(y_i - ˆbar{y})}{N - 1}
+$$
+
+Wartość ta będzie daleka od zera, gdy poszczególne punkty danych odchylają się o podobne wartości od swoich średnich; jeśli odchylają się w tym samym kierunku, to kowariancja jest dodatnia, natomiast jeśli odchylają się w przeciwnych kierunkach, to kowariancja jest ujemna.  Przyjrzyjmy się najpierw zabawkowemu przykładowi.  Dane są przedstawione w Tabeli, wraz z ich indywidualnymi odchyleniami od średniej i ich kowariancjami.
+
+``{r covTable, echo=FALSE}
+# utwórz dane dla zabawkowego przykładu kowariancji
+df <-
+  tibble(x = c(3, 5, 8, 10, 12)) %>%
+  mutate(y = x + round(rnorm(n = 5, mean = 0, sd = 2)) %>%
+  mutate(
+    y_dev = y - mean(y),
+    x_dev = x - mean(x)
+  ) %>%
+  mutate(crossproduct = y_dev * x_dev)
+
+covXY <- sum(df$crossproduct) / (nrow(df) - 1)
+corXY <- sum(df$crossproduct) / ((nrow(df) - 1) * sd(df$x) * sd(df$y))
+
+kable(df, caption='Dane dla zabawkowego przykładu kowariancji')
+```
+
+Kowariancja to po prostu średnia z krosowań, która w tym przypadku wynosi `r I(covXY)`. Zazwyczaj nie używamy kowariancji do opisywania związków między zmiennymi, ponieważ zmienia się ona wraz z ogólnym poziomem wariancji w danych.  Zamiast tego zwykle używamy *współczynnika korelacji* (często nazywanego *korelacją Pearsona* od nazwiska statystyka Karla Pearsona). Korelację oblicza się poprzez przeskalowanie kowariancji przez odchylenia standardowe dwóch zmiennych:
+
+$$
+r = ˆfrac{kowariancja}{s_xs_y} = ˆfrac{suma{i=1}^n (x_i - ˆx})(y_i - ˆbar{y})}{(N - 1)s_x s_y}.
+$$
+W tym przypadku wartość ta wynosi `r I(corXY)`.  Współczynnik korelacji jest przydatny, ponieważ zmienia się w zakresie od -1 do 1 niezależnie od charakteru danych - w rzeczywistości omówiliśmy już współczynnik korelacji wcześniej przy omawianiu wielkości efektów.  Jak widzieliśmy w tym poprzednim rozdziale, korelacja równa 1 oznacza doskonałą liniową zależność, korelacja równa -1 oznacza doskonałą negatywną zależność, a korelacja równa zero oznacza brak liniowej zależności.
+
+
+``{r echo=FALSE}
+corGiniHC <-
+  cor(
+    hateCrimes$gini_index,
+    hateCrimes$avg_hatecrimes_per_100k_fbi
+  )
+```
+
+### Testowanie hipotezy dla korelacji
+
+Wartość korelacji `r I(corGiniHC)` między przestępstwami z nienawiści a nierównościami dochodowymi wydaje się wskazywać na dość silny związek między nimi, ale możemy też wyobrazić sobie, że może on wystąpić przypadkowo, nawet jeśli nie ma żadnego związku.  Możemy przetestować hipotezę zerową, że korelacja jest zerowa, używając prostego równania, które pozwala nam przekształcić wartość korelacji w statystykę *t*:
+
+$$
+\NT}_r = \frac{r\N-2}}{\i1-r^2}
+$$
+
+Przy hipotezie zerowej $H_0:r=0$ statystyka ta ma rozkład jako rozkład t z $N - 2$ stopniami swobody.  Możemy to obliczyć za pomocą naszego oprogramowania statystycznego:
+
+``{r echo=FALSE}
+# wykonaj test korelacji na danych dotyczących przestępstw z nienawiści
+cor.test(
+  hateCrimes$avg_hatecrimes_per_100k_fbi,
+  hateCrimes$gini_index
+)
+```
+
+Ten test pokazuje, że prawdopodobieństwo wystąpienia wartości r tak skrajnej lub większej jest dość niskie przy hipotezie zerowej, więc odrzucilibyśmy hipotezę zerową $r=0$.  Zauważ, że ten test zakłada, że obie zmienne są normalnie dystrybuowane.
+
+Moglibyśmy również przetestować to przez randomizację, w której wielokrotnie tasujemy wartości jednej ze zmiennych i obliczamy korelację, a następnie porównujemy naszą obserwowaną wartość korelacji z rozkładem zerowym, aby określić, jak prawdopodobna byłaby nasza obserwowana wartość przy hipotezie zerowej. Wyniki pokazane są na rysunku \N(fig:shuffleCorr).  Wartość p obliczona przy użyciu randomizacji jest dość podobna do odpowiedzi udzielonej przez test t.
+
+``{r echo=FALSE}
+# compute null distribution by shuffling order of variable values
+
+# utwórz funkcję do obliczania korelacji na przetasowanych wartościach
+shuffleCorr <- function(x, y) {
+  xShuffled <- sample(x)
+  return(cor(xShuffled, y))
+}
+
+# uruchom tę funkcję 2500 razy
+shuffleDist <-
+  replicate(
+    2500,
+    shuffleCorr(hateCrimes$avg_hatecrimes_per_100k_fbi, hateCrimes$gini_index)
+  )
+```
+
+``{r shuffleCorr,echo=FALSE,fig.cap="Histogram wartości korelacji przy hipotezie zerowej, uzyskany przez tasowanie wartości. Observed value is denoted by blue line.",fig.width=4,fig.height=4,out.height='50%'}
+
+ggplot(data.frame(shuffleDist),aes(shuffleDist)) +
+  geom_histogram(bins=100) +
+  geom_vline(xintercept = corGiniHC,color='blue') +
+  ggtitle(sprintf('p(shuffled r >= observed) = %0.3f',mean(shuffleDist>=corGiniHC))) +
+  theme(plot.title = element_text(size = 16, face = "bold")) +
+  theme(plot.margin = unit(c(0,1,0,0), "cm")) +
+  labs(
+  x = "Correlation coeffcients of shuffled variables"
+  )
+
+```
+
+Moglibyśmy również użyć wnioskowania bayesowskiego do oszacowania korelacji; więcej na ten temat w dodatku.
+
+### Robust correlations {#robust-correlations}
+
+Być może zauważyłeś coś dziwnego na rysunku - jeden z punktów danych (ten dla Dystryktu Kolumbii) wydawał się być zupełnie oddzielony od pozostałych.  Określamy to mianem "wartości odstającej", a standardowy współczynnik korelacji jest bardzo wrażliwy na wartości odstające.  Na przykład, na rysunku możemy zobaczyć, jak pojedynczy odstający punkt danych może spowodować bardzo wysoką dodatnią wartość korelacji, nawet jeśli rzeczywisty związek między innymi punktami danych jest idealnie ujemny.
+
+``{r outlierCorr, echo=FALSE,fig.cap="Symulowany przykład wpływu wartości odstających na korelację.  Bez wartości odstającej pozostałe punkty danych mają idealnie ujemną korelację, ale pojedyncza wartość odstająca zmienia wartość korelacji na wysoce dodatnią.",fig.width=4,fig.height=4,out.height='50%'}
+n <- 10
+set.seed(1234)
+
+dfOutlier <-
+  data.frame(x = rnorm(n)) %>%
+  mutate(y = x * -1)
+
+dfOutlier$x[1] <- 10
+dfOutlier$y[1] <- 10
+cc <- cor(dfOutlier$x, dfOutlier$y)
+ccSpearman <- cor(dfOutlier$x, dfOutlier$y, method = "spearman")
+
+p <- ggplot(dfOutlier, aes(x, y)) +
+  geom_point() +
+  ggtitle(sprintf("r = %0.2f (bez wartości odstającej: r = %.2f)", cc, cor(dfOutlier$x[2:n], dfOutlier$y[2:n]))) +
+  theme(plot.title = element_text(size = 16, face = "bold")) +
+  theme(plot.margin = unit(c(0, 1, 0, 0), "cm")) +
+  labs(
+    x = "zmienna x",
+    y = "zmienna y"
+  )
+print(p)
+
+
+```
+
+Jednym ze sposobów radzenia sobie z wartościami odstającymi jest obliczenie korelacji na rangach danych po ich uporządkowaniu, a nie na samych danych; jest to znane jako *korelacja Pearmana*.  Podczas gdy korelacja Pearsona dla przykładu z rysunku wynosiła `r I(cc)`, korelacja Spearmana wynosi `r I(ccSpearman)`, pokazując, że korelacja rangowa redukuje efekt wartości odstającej i odzwierciedla negatywny związek między większością punktów danych.
+
+Korelację rangową możemy obliczyć również na danych dotyczących przestępstw z nienawiści:
+
+``{r echo=FALSE}
+corTestSpearman <- cor.test( hateCrimes$avg_hatecrimes_per_100k_fbi,
+  hateCrimes$gini_index,
+  metoda = "spearman")
+corTestSpearman
+```
+
+Teraz widzimy, że korelacja nie jest już znacząca (i w rzeczywistości jest bardzo bliska zeru), co sugeruje, że twierdzenia z wpisu na blogu FiveThirtyEight mogły być błędne z powodu efektu odstającego.
+
+
+## Korelacja i związek przyczynowy
+
+Kiedy mówimy, że jedna rzecz *powoduje* drugą, co mamy na myśli?  W filozofii istnieje długa historia dyskusji na temat znaczenia przyczynowości, ale w statystyce jednym ze sposobów, w jaki powszechnie myślimy o przyczynowości, jest kontrola eksperymentalna.  To znaczy, jeśli uważamy, że czynnik X powoduje czynnik Y, to manipulowanie wartością X powinno również zmienić wartość Y.
+
+W medycynie istnieje zestaw idei znanych jako [*postulaty Kocha*](https://en.wikipedia.org/wiki/Koch%27s_postulates), które historycznie były używane do określenia, czy dany organizm powoduje chorobę.   Podstawową ideą jest to, że organizm powinien być obecny u osób z chorobą, a nie powinien być obecny u osób bez choroby - zatem leczenie, które eliminuje organizm, powinno również wyeliminować chorobę.  Co więcej, zarażenie kogoś organizmem powinno spowodować zachorowanie na chorobę.  Przykładem tego jest praca dr Barry'ego Marshalla, który postawił hipotezę, że wrzody żołądka są powodowane przez bakterię (*Helicobacter pylori*).  Aby to udowodnić, zaraził się tą bakterią i wkrótce potem rozwinął ciężkie zapalenie żołądka.  Następnie poddał się leczeniu antybiotykiem i jego żołądek szybko wyzdrowiał.  Za tę pracę otrzymał później Nagrodę Nobla w dziedzinie medycyny.
+
+Często chcielibyśmy sprawdzić hipotezy przyczynowe, ale nie możemy przeprowadzić eksperymentu, ponieważ jest to niemożliwe ("Jaki jest związek między emisją dwutlenku węgla przez człowieka a klimatem na Ziemi?") lub nieetyczne ("Jaki jest wpływ silnego znęcania się na rozwój mózgu dziecka?"). Nadal jednak możemy zbierać dane, które mogą być istotne dla tych pytań.  Na przykład możemy potencjalnie zebrać dane od dzieci, które były maltretowane, jak również od tych, które nie były maltretowane, a następnie możemy zapytać, czy ich rozwój mózgu różni się.
+
+Załóżmy, że przeprowadziliśmy taką analizę i okazało się, że dzieci maltretowane miały gorszy rozwój mózgu niż dzieci nie maltretowane. Czy to dowodzi, że maltretowanie *powoduje* gorszy rozwój mózgu?  Nie. Kiedykolwiek obserwujemy statystyczny związek między dwiema zmiennymi, jest z pewnością możliwe, że jedna z tych dwóch zmiennych powoduje drugą.  Jednak możliwe jest również, że na obie zmienne wpływa trzecia zmienna; w tym przypadku może to być fakt, że wykorzystywanie dzieci wiąże się ze stresem rodzinnym, który może również powodować gorszy rozwój mózgu poprzez mniejsze zaangażowanie intelektualne, stres związany z jedzeniem lub wiele innych możliwych dróg.  Chodzi o to, że korelacja między dwiema zmiennymi mówi nam, że coś *prawdopodobnie* powoduje coś innego, ale nie mówi nam, co powoduje co.
+
+### Wykresy przyczynowe
+
+Jednym z użytecznych sposobów opisywania związków przyczynowych między zmiennymi jest *graf przyczynowy*, który przedstawia zmienne jako koła, a związki przyczynowe między nimi jako strzałki.  Na przykład, rysunek \(fig:simpleCausalGraph) pokazuje związki przyczynowe między czasem studiów a dwiema zmiennymi, na które naszym zdaniem powinny mieć one wpływ: stopniami z egzaminów i czasem ich zakończenia.  
+
+``{r mkCausalGraphs, echo=FALSE,message=FALSE,warning=FALSE,fig.cap="Wykres pokazujący związki przyczynowe pomiędzy trzema zmiennymi: czasem studiowania, ocenami z egzaminów i czasem ich zakończenia.  Zielona strzałka reprezentuje pozytywną zależność (np. więcej czasu na naukę powoduje wzrost ocen z egzaminu), a czerwona strzałka reprezentuje negatywną zależność (np. więcej czasu na naukę powoduje szybsze ukończenie egzaminu).",fig.width=6,fig.height=6,out.height='50%'}
+
+graph = "
+digraph boxes_and_circles {
+
+  # instrukcja 'graph'
+  graph [overlap = true, fontsize = 6]
+
+  # kilka instrukcji 'node'
+
+  node [shape = circle,
+        fixedsize = true
+        width = 0.9,
+        fontsize=6] // ustawia jako okręgi
+  StudyTime; ExamGrade; FinishTime
+
+  # kilka deklaracji 'krawędziowych'
+  StudyTime->ExamGrade [color=green]
+  StudyTime->FinishTime [color=red]
+}
+"
+
+grViz(graph) %>%
+   export_svg %>%
+   charToRaw %>%
+   rsvg_png("images/dag_example.png", width = 500)
+
+latent_graph = "
+digraph boxes_and_circles {
+
+  # a 'graph' statement
+  graph [overlap = true, fontsize = 6]
+
+  # kilka deklaracji 'node'
+
+  node [shape = circle,
+        fixedsize = true
+        width = 0.9,
+        fontsize=6] // ustawia jako okręgi
+  StudyTime; ExamGrade; FinishTime
+
+  node [shape = box,
+        fixedsize = true
+        width = 0.9,
+        fontsize=6] //  
+  Wiedza
+
+  # kilka stwierdzeń 'edge'
+  StudyTime->Knowledge [color=green]
+  Knowledge->ExamGrade [color=green]
+  Knowledge->FinishTime [color=red]
+}
+"
+grViz(latent_graph) %>%
+   export_svg %>%
+   charToRaw %>%
+   rsvg_png("images/dag_latent_example.png", width = 500)
+
+```
+
+W rzeczywistości jednak efekty w zakresie czasu ukończenia i ocen nie wynikają bezpośrednio z ilości czasu poświęconego na naukę, ale raczej z ilości wiedzy, którą student zdobywa ucząc się.  Zwykle mówimy, że wiedza jest zmienną *latentną* - to znaczy, że nie możemy jej zmierzyć bezpośrednio, ale widzimy jej odzwierciedlenie w zmiennych, które możemy zmierzyć (jak oceny i czas ukończenia studiów).  
+
+``{r simpleCausalGraph, echo=FALSE,fig.cap="Wykres pokazujący związki przyczynowe pomiędzy trzema zmiennymi: czasem nauki, ocenami z egzaminu i czasem ukończenia egzaminu.  Zielona strzałka reprezentuje pozytywną zależność (np. więcej czasu na naukę powoduje wzrost ocen z egzaminu), a czerwona strzałka reprezentuje negatywną zależność (np. więcej czasu na naukę powoduje szybsze ukończenie egzaminu).",fig.width=6,out.height='50%'}
+
+knitr::include_graphics("images/dag_example.png")
+
+```
+
+``{r latentCausalGraph, echo=FALSE,fig.cap="Wykres pokazujący te same zależności przyczynowe co powyżej, ale teraz pokazujący również zmienną ukrytą (wiedzę) za pomocą kwadratowego pola.",fig.width=6,out.height='50%'}
+
+knitr::include_graphics("images/dag_latent_example.png")
+
+```
+
+Tutaj powiedzielibyśmy, że wiedza *pośredniczy* w relacji między czasem nauki a ocenami/czasem ukończenia.  Oznacza to, że gdybyśmy byli w stanie utrzymać wiedzę na stałym poziomie (na przykład poprzez podanie leku powodującego natychmiastowe zapominanie), wtedy ilość czasu nauki nie powinna mieć wpływu na oceny i czasy ukończenia.
+
+Zauważmy, że gdybyśmy po prostu zmierzyli oceny z egzaminów i czasy ukończenia, to generalnie zobaczylibyśmy negatywną zależność między nimi, ponieważ osoby, które najszybciej kończą egzaminy, generalnie otrzymują najwyższe oceny.  Jednak gdybyśmy mieli zinterpretować tę korelację jako związek przyczynowy, to powiedziałoby nam to, że aby uzyskać lepsze oceny, powinniśmy faktycznie skończyć egzamin szybciej! Ten przykład pokazuje, jak trudne może być wnioskowanie o przyczynowości z danych nieeksperymentalnych.
+
+W ramach statystyki i uczenia maszynowego istnieje bardzo aktywna społeczność badawcza, która bada obecnie kwestię tego, kiedy i jak możemy wnioskować o związkach przyczynowych z danych nieeksperymentalnych.  Jednak metody te często wymagają silnych założeń i generalnie muszą być stosowane z dużą ostrożnością.
+
+## Cele nauczania.
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Opisać pojęcie współczynnika korelacji i jego interpretację.
+* Obliczyć korelację pomiędzy dwoma zmiennymi ciągłymi
+* Opisać efekt odstających punktów danych i sposoby radzenia sobie z nimi.
+* Opisać potencjalne wpływy przyczynowe, które mogą być przyczyną obserwowanej korelacji.
+
+## Sugerowane lektury
+
+- The Book of Why](http://bayes.cs.ucla.edu/WHY/) autorstwa Judea Pearl - doskonałe wprowadzenie do idei stojących za wnioskowaniem przyczynowym.
+
+## Dodatek:
+
+### Kwantyfikacja nierówności: Wskaźnik Giniego
+
+Zanim przyjrzymy się analizie przedstawionej w artykule, warto najpierw zrozumieć, jak indeks Giniego jest wykorzystywany do ilościowego określania nierówności. Wskaźnik Giniego jest zwykle definiowany jako krzywa opisująca zależność między dochodem a odsetkiem populacji, który ma dochód na poziomie lub poniżej tego poziomu, znana jako *krzywa Lorenza*.  Jednak inny sposób myślenia o niej jest bardziej intuicyjny: Jest to średnia bezwzględna różnica względna między dochodami, podzielona przez dwa (z https://en.wikipedia.org/wiki/Gini_coefficient):
+
+$$
+G = ¨frac{ ¨sum_{i=1}^n ¨sum_{j=1}^n ¨left| x_i - x_j ¨right|}}{ ¨displaystyle{2n ¨sum_{i=1}^n x_i}}.
+$$
+
+``{r echo=FALSE}
+# funkcja do generowania wykresu krzywej Lorenza i obliczania współczynnika Giniego
+lorenzCurve = function(df){
+  df <- df %>% arrange(income)
+  sumIncome <- suma(df$dochód)
+  lc <- array(NA,nrow(df)+1)
+  p <- array(NA,nrow(df)+1)
+  lc[1] <- 0
+  p[1] <- 0
+  for (i in 1:nrow(df)){
+    lc[i+1] <- suma(df$income[1:i])/sumaIncome
+    p[i+1] <- i/nrow(df)
+  }
+  S <- sum(lc)
+  giniCoef <- 1 + (1-2*S)/nrow(df)
+  return(list(p=p,lc=lc,gc=giniCoef))
+}
+
+
+```
+
+
+``{r gini0,echo=FALSE,fig.cap="Krzywe Lorenza dla A) idealnej równości, B) normalnie rozłożonego dochodu i C) wysokiej nierówności (równe dochody z wyjątkiem jednej bardzo bogatej osoby).",fig.width=8,fig.height=8,out.width='80%'}
+
+incomeDf <- data.frame(income=rep(40000,10))
+lc <- lorenzCurve(incomeDf)
+
+incomeDf <- data.frame(income=rnorm(10,mean=40000,sd=5000))
+lc2 <- lorenzCurve(incomeDf)
+
+incomeDf <- data.frame(income=rep(40000,10))
+incomeDf$income[1] <- 40000000
+lc3 <- lorenzCurve(incomeDf)
+
+p1 <- ggplot(data.frame(p=lc$p,lc=lc$lc),aes(p,lc)) +
+    geom_line(color='blue') +
+    geom_point() +
+    xlim(0,1) + ylim(0,1) +
+    xlab('Skumulowany udział w populacji') +
+    ylab('Skumulowana proporcja dochodów') +
+    geom_abline(slope=1,intercept = 0,color='black',linetype='dotted') +
+    ggtitle(sprintf('A: Współczynnik Giniego = %f',lc$gc))
+
+p2 <- ggplot(data.frame(p=lc2$p,lc=lc2$lc),aes(p,lc)) +
+    geom_line(color='blue') +
+    geom_point() +
+    xlim(0,1) + ylim(0,1) +
+    xlab('Skumulowany udział w populacji') +
+    ylab('Skumulowana proporcja dochodów') +
+    geom_abline(slope=1,intercept = 0,color='black',linetype='dotted') +
+    ggtitle(sprintf('B: Współczynnik Giniego = %f',lc2$gc))
+
+p3 <- ggplot(data.frame(p=lc3$p,lc=lc3$lc),aes(p,lc)) +
+    geom_line(color='blue') +
+    geom_point() +
+    xlim(0,1) + ylim(0,1) +
+    xlab('Skumulowany udział w populacji') +
+    ylab('Skumulowana proporcja dochodów') +
+    geom_abline(slope=1,intercept = 0,color='black',linetype='dotted') +
+    ggtitle(sprintf('C: Współczynnik Giniego = %f',lc3$gc))
+
+plot_grid(p1,p2,p3,ncol=2)
+```
+Rysunek (fig:gini0) pokazuje krzywe Lorenza dla kilku różnych rozkładów dochodów.  Lewy górny panel (A) pokazuje przykład z 10 osobami, gdzie wszyscy mają dokładnie takie same dochody. Długości odstępów między punktami są równe, co wskazuje, że każda osoba zarabia identyczną część całkowitego dochodu w populacji.  Prawy górny panel (B) pokazuje przykład, w którym dochód ma rozkład normalny. Lewy dolny panel pokazuje przykład z dużą nierównością; wszyscy mają równy dochód (≥40 000 USD) z wyjątkiem jednej osoby, która ma dochód ≥40 000 000 USD. Według amerykańskiego spisu powszechnego w 2010 roku w Stanach Zjednoczonych wskaźnik Giniego wynosił 0,469, co plasuje się mniej więcej w połowie drogi między naszymi normalnie rozłożonymi i maksymalnie nierównymi przykładami.
+
+
+### Bayesian correlation analysis
+
+Możemy również przeanalizować dane FiveThirtyEight za pomocą analizy bayesowskiej, która ma dwie zalety.  Po pierwsze, dostarcza nam ona prawdopodobieństwa potomnego -- w tym przypadku prawdopodobieństwa, że wartość korelacji przekracza zero.  Po drugie, szacunek Bayesa łączy obserwowane dowody z *pierwszym*, co skutkuje *regularnością* szacunku korelacji, efektywnie ciągnąc go w kierunku zera.  Tutaj możemy ją obliczyć za pomocą pakietu *BayesFactor* w R.
+
+
+``{r echo=FALSE}
+
+bayesCor <- correlationBF(
+  hateCrimes$avg_hatecrimes_per_100k_fbi,
+  hateCrimes$gini_index
+)
+print(bayesCor)
+bayesCorPosterior <- describe_posterior(bayesCor)
+print(bayesCorPosterior)
+```
+
+Zauważmy, że korelacja oszacowana metodą bayesowską (`r I(bayesCorPosterior$Median)`) jest nieco mniejsza niż ta oszacowana przy użyciu standardowego współczynnika korelacji (`r I(corGiniHC)`), co wynika z faktu, że oszacowanie jest oparte na kombinacji dowodów i priorytetu, co efektywnie kurczy oszacowanie w kierunku zera. Zauważmy jednak, że analiza bayesowska nie jest odporna na wartości odstające i nadal mówi, że istnieją dość silne dowody na to, że korelacja jest większa niż zero (ze współczynnikiem Bayesa większym niż 20).

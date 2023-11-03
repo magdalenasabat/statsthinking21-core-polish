@@ -1,0 +1,271 @@
+---
+output:
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+  pdf_document: default
+  html_document: default
+---
+# Practical statistical modeling {#practical-example}
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(BayesFactor)
+library(emmeans)
+library(brms)
+library(cowplot)
+library(knitr)
+library(ggfortify)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  subset(Age>=18)
+
+```
+
+W tym rozdziale zbierzemy wszystko, czego się nauczyliśmy, stosując naszą wiedzę na praktycznym przykładzie.  W 2007 roku Christopher Gardner i współpracownicy ze Stanford opublikowali w *Journal of the American Medical Association* badanie zatytułowane "Comparison of the Atkins, Zone, Ornish, and LEARN Diets for Change in Weight and Related Risk Factors Among Overweight Premenopausal Women -- The A TO Z Weight Loss Study: A Randomized Trial" [@gard:kiaz:alha:2007]. Użyjemy tego badania, aby pokazać, jak można przeanalizować eksperymentalny zbiór danych od początku do końca.
+
+## Proces modelowania statystycznego
+
+Istnieje zestaw kroków, przez które zazwyczaj przechodzimy, gdy chcemy użyć naszego modelu statystycznego do przetestowania hipotezy naukowej:
+
+1. Sprecyzuj pytanie, które Cię interesuje.
+2. Zidentyfikuj lub zbierz odpowiednie dane
+3. Przygotuj dane do analizy
+4. Ustalić odpowiedni model
+5. Dopasować model do danych
+6. Skrytykować model, aby upewnić się, że jest on prawidłowo dopasowany
+7. Przetestuj hipotezę i określ wielkość efektu
+
+### 1: Sprecyzuj interesujące cię pytanie
+
+Jak podają autorzy, celem ich badania było:
+
+> Porównanie 4 diet odchudzających reprezentujących spektrum od niskiego do wysokiego spożycia węglowodanów pod kątem wpływu na utratę masy ciała i powiązane zmienne metaboliczne.
+
+### 2: Zidentyfikować lub zebrać odpowiednie dane
+
+Aby odpowiedzieć na pytanie, badacze losowo przypisali każdą z 311 kobiet z nadwagą/otyłością do jednej z czterech różnych diet (Atkins, Zone, Ornish lub LEARN) i zmierzyli ich wagę wraz z wieloma innymi miarami zdrowia w czasie.  Autorzy odnotowali dużą liczbę zmiennych, ale dla głównego interesującego nas pytania skupmy się na jednej zmiennej: Body Mass Index (BMI).  Ponadto, ponieważ naszym celem jest zmierzenie trwałych zmian w BMI, przyjrzymy się tylko pomiarowi dokonanemu po 12 miesiącach od rozpoczęcia diety.
+
+### 3: Przygotuj dane do analizy
+
+
+``{r echo=FALSE, message=FALSE}
+# wygeneruj zbiór danych oparty na wynikach z tabeli 3 Gardner et al.
+
+set.seed(123456)
+dietDf <-
+  data.frame(dieta=c(rep('Atkins',77),
+                    rep('Zone',79),
+                    rep('LEARN',79),
+                    rep('Ornish',76)) %>%
+  mutate(
+    BMIChange12Months=ifelse(dieta='Atkins',
+                             rnorm(n=77,mean=-1.65,sd=2.54),
+                      ifelse(dieta=='Zone',
+                             rnorm(n=79,mean=-0.53,sd=2.0),
+                      ifelse(dieta=='LEARN',,
+                             rnorm(n=79,mean=-0.92,sd=2.0),
+                      rnorm(n=76,mean=-0.77,sd=2.14)))),
+    BMIInitial=ifelse(dieta='Atkins',
+                             rnorm(n=77,mean=-32,sd=4),
+                      ifelse(dieta=='Zone',
+                             rnorm(n=79,mean=31,sd=3),
+                      ifelse(dieta=="LEARN
+                             rnorm(n=79,mean=31,sd=4),
+                      rnorm(n=76,mean=32,sd=3)))),
+    BMI12months=BMIInitial + BMIChange12Months,
+    physicalActivity=ifelse(dieta='Atkins',
+                            rnorm(n=77,mean=34,sd=6),
+                     ifelse(dieta='Zone', rnorm(n=79,mean=34,sd=6),
+                            rnorm(n=79,mean=34,sd=6.0),
+                     ifelse(dieta=="LEARN
+                            rnorm(n=79,mean=34,sd=5.0),
+                      rnorm(n=76,mean=35,sd=7) ))
+  )
+
+summaryDf <-
+  dietDf %>%
+  group_by(dieta) %>%
+  summarize(
+    n=n(),
+    meanBMIChange12Months=mean(BMIChange12Months),
+    varBMIChange12Months=var(BMIChange12Months)
+  ) %>%
+  mutate(
+    crit_val_lower = qt(.05, n - 1),
+    crit_val_upper = qt(.95, n - 1),
+    ci.lower=meanBMIChange12Months+(sqrt(varBMIChange12Months)*crit_val_lower)/sqrt(n),
+    ci.upper=meanBMIChange12Months+(sqrt(varBMIChange12Months)*crit_val_upper)/sqrt(n)
+  )
+
+tableDf <- summaryDf %>%
+  dplyr::select(-crit_val_lower,
+                -crit_val_upper,
+                -varBMIChange12Months) %>%
+  rename(dieta = dieta,
+         N = n,
+         `Mean BMI change (12 months)`=meanBMIChange12Months,
+         `CI (dolna granica)`=ci.dolna,
+         `CI (górna granica)`=ci.upper)
+```
+
+
+``{r AtoZBMIChangeDensity,echo=FALSE,fig.cap="Box plots for each condition, with the 50th percentile (i.e. the median) shown as a black line for each group.", fig.width=4, fig.height=4, out.width="50%"}
+ggplot(dietDf,aes(diet,BMIChange12Months)) +
+  geom_boxplot()
+
+```
+
+Rzeczywiste dane z badania A to Z nie są publicznie dostępne, więc użyjemy danych zbiorczych zgłoszonych w ich artykule, aby wygenerować pewne syntetyczne dane, które z grubsza odpowiadają danym uzyskanym w ich badaniu, z tymi samymi średnimi i odchyleniami standardowymi dla każdej grupy. Kiedy mamy już dane, możemy je zwizualizować, aby upewnić się, że nie ma żadnych wartości odstających. Box plots są użyteczne, aby zobaczyć kształt rozkładów, jak pokazano na rysunku \(fig:AtoZBMIChangeDensity). Dane te wyglądają dość rozsądnie - jest kilka wartości odstających w obrębie poszczególnych grup (oznaczonych kropkami poza wykresami pudełkowymi), ale nie wydają się one skrajne w stosunku do innych grup. Widzimy również, że rozkłady wydają się nieco różnić w ich wariancji, przy czym Atkins wykazuje nieco większą zmienność niż inni.  Oznacza to, że wszelkie analizy zakładające, że wariancje w poszczególnych grupach są równe, mogą być niewłaściwe.  Na szczęście model ANOVA, który zamierzamy zastosować, jest na to dość odporny.
+
+### 4. Określenie właściwego modelu
+
+Istnieje kilka pytań, które musimy zadać, aby określić odpowiedni model statystyczny dla naszej analizy.
+
+* Jaki rodzaj zmiennej zależnej?
+    * BMI: ciągła, w przybliżeniu normalnie rozłożona
+* Co porównujemy?
+    * średnie BMI w czterech grupach dietetycznych
+    * ANOVA jest odpowiednia
+* Czy obserwacje są niezależne?
+    * Losowy przydział powinien zapewnić, że założenie niezależności jest odpowiednie
+    * Zastosowanie wyników różnicowych (w tym przypadku różnica między wagą wyjściową a wagą po 12 miesiącach) jest nieco kontrowersyjne, zwłaszcza gdy punkty wyjściowe różnią się między grupami.  W tym przypadku wagi początkowe są bardzo podobne między grupami, więc użyjemy difference scores, ale generalnie należałoby się skonsultować ze statystykiem przed zastosowaniem takiego modelu do rzeczywistych danych.
+
+### 5. Dopasowanie modelu do danych
+
+Przeprowadźmy ANOVA dla zmiany BMI, aby porównać ją pomiędzy czterema dietami. Większość programów statystycznych automatycznie przekształca zmienną nominalną w zestaw zmiennych dummy.  Powszechnym sposobem określania modelu statystycznego jest użycie *formula notation*, w którym model jest określony za pomocą formuły o postaci:
+
+$$
+\tekst{zmienna zależna}
+$$
+
+W tym przypadku chcemy przyjrzeć się zmianie BMI (która jest przechowywana w zmiennej o nazwie *BMIChange12Months*) w funkcji diety (która jest przechowywana w zmiennej o nazwie *diet), więc używamy formuły:
+
+$$
+BMIChange12Months \NDieta
+$$
+
+Większość programów statystycznych (w tym R) automatycznie tworzy zestaw zmiennych dummy, gdy model zawiera zmienną nominalną (taką jak zmienna *diet*, która zawiera nazwę diety, którą otrzymywała każda osoba).  Oto wyniki z tego modelu dopasowanego do naszych danych:
+
+``{r echo=FALSE}
+# wykonaj ANOVA i wydrukuj wynik
+
+lmResult <- lm(BMIChange12Months ~ diet, data = dietDf)
+summary(lmResult)
+```
+
+Zauważ, że oprogramowanie automatycznie wygenerowało zmienne dummy, które odpowiadają trzem z czterech diet, pozostawiając dietę Atkinsa bez zmiennej dummy. Oznacza to, że intercept reprezentuje średnią grupy diety Atkinsa, a pozostałe trzy zmienne modelują różnicę między środkami dla każdej z tych diet i średnią dla diety Atkinsa. Atkins został wybrany jako niemodelowana zmienna podstawowa po prostu dlatego, że jest pierwszy w kolejności alfabetycznej.
+
+### 6. Krytyka modelu, aby upewnić się, że pasuje on prawidłowo
+
+Pierwszą rzeczą, którą chcemy zrobić, jest krytyka modelu, aby upewnić się, że jest on odpowiedni. Jedną z rzeczy, którą możemy zrobić, jest przyjrzenie się resztom z modelu. Na rysunku fig:residualPlot wykreślamy reszty dla każdego osobnika pogrupowanego według diety. Nie ma oczywistych różnic w rozkładach reszt w różnych warunkach, możemy przejść do analizy.
+
+``{r residualPlot, echo=FALSE, fig.cap="Distribution of residuals for for for each condition", fig.width=4, fig.height=4}
+dietDf <- dietDf %>%
+  mutate(lmResid=lmResult$residuals)
+
+ggplot(dietDf, aes(x=lmResid, group=diet, color=diet)) +
+  geom_density() +
+  xlab('Residuals')
+```
+
+Kolejnym ważnym założeniem testów statystycznych, które stosujemy do modeli liniowych, jest to, że reszty z modelu mają rozkład normalny. Jest to powszechne błędne przekonanie, że modele liniowe wymagają, aby *dane* były normalnie rozłożone, ale tak nie jest; jedynym wymogiem, aby statystyka była poprawna, jest to, że błędy resztowe są normalnie rozłożone. Prawy panel rysunku pokazuje wykres Q-Q (quantile-quantile), który przedstawia reszty względem ich wartości oczekiwanych na podstawie kwantyli w rozkładzie normalnym. Jeśli reszty są normalnie rozłożone, to punkty danych powinny spaść wzdłuż linii przerywanej --- w tym przypadku wygląda to całkiem dobrze, z wyjątkiem kilku wartości odstających, które są widoczne na samym dole Ponieważ ten model jest również stosunkowo odporny na naruszenia normalności, a te są dość małe, pójdziemy dalej i użyjemy wyników.
+
+
+``{r diagnosticQQPlot, echo=FALSE, fig.cap="Q-Q plot of actual residual values against theoretical residual values", fig.width=4, fig.height=4}
+
+ggplot(dietDf, aes(sample = lmResid)) +
+  stat_qq() + stat_qq_line()
+```
+
+### 7. Testowanie hipotezy i określenie wielkości efektu
+
+Najpierw spójrzmy na podsumowanie wyników z ANOVA, pokazane w kroku 5 powyżej. Znaczący test F pokazuje nam, że istnieje znacząca różnica między dietami, ale powinniśmy również zauważyć, że model nie odpowiada w rzeczywistości za wiele wariancji w danych; wartość R-squared wynosi tylko 0,03, co pokazuje, że model odpowiada tylko za kilka procent wariancji utraty wagi.  Dlatego nie chcielibyśmy nadinterpretować tego wyniku.
+
+Istotny wynik w teście F omnibus nie mówi nam również, które diety różnią się od innych. Możemy dowiedzieć się więcej, porównując średnie w różnych warunkach.  Ponieważ dokonujemy kilku porównań, musimy je skorygować, co uzyskujemy za pomocą procedury znanej jako metoda Tukey'a, która jest zaimplementowana przez nasze oprogramowanie statystyczne:
+
+``{r echo=FALSE}
+# oblicz różnice między każdą ze średnich
+leastsquare <- emmeans(lmResult,
+                      pairwise ~ dieta,
+                      adjust="tukey")
+
+# wyświetl wyniki poprzez grupowanie za pomocą liter
+
+multcomp::cld(leastsquare$emmeans,
+    alfa=.05,
+    Letters=letters)
+
+```
+
+Litery w prawej kolumnie pokazują nam, które z grup różnią się od siebie, przy użyciu metody, która dostosowuje się do liczby wykonywanych porównań; warunki, które mają wspólną literę, nie różnią się znacząco od siebie.  Pokazuje to, że diety Atkinsa i LEARN nie różnią się od siebie (ponieważ dzielą literę a), a diety LEARN, Ornish i Zone nie różnią się od siebie (ponieważ dzielą literę b), ale dieta Atkinsa różni się od diet Ornisha i Zone (ponieważ nie dzielą żadnej litery).
+
+### Co z możliwymi ograniczeniami?
+
+Jeśli przyjrzymy się bliżej artykułowi Gardnera, zobaczymy, że podano w nim również statystyki dotyczące tego, u ilu osób w każdej grupie zdiagnozowano *zespół metaboliczny*, który jest zespołem charakteryzującym się wysokim ciśnieniem krwi, wysokim poziomem glukozy we krwi, nadmiarem tkanki tłuszczowej wokół talii oraz nieprawidłowym poziomem cholesterolu i wiąże się ze zwiększonym ryzykiem wystąpienia problemów sercowo-naczyniowych. Dane z pracy Gardnera zostały przedstawione w tabeli \N(tab:metsymData).
+
+`{r metsymData, echo=FALSE}
+summaryDf <-.
+  summaryDf %>%
+  mutate(
+    nMetSym=c(22,20,29,27),
+    nNoMetSym=n-nMetSym,
+    pMetSym=nMetSym/(nMetSym+nNoMetSym)
+  )
+
+displayDf <- summaryDf %>%
+  dplyr::select(dieta,n,pMetSym) %>%
+  rename(`P(zespół metaboliczny)`=pMetSym,
+         N=n,
+         dieta=diet)
+
+kable(displayDf, caption="Występowanie zespołu metabolicznego w poszczególnych grupach w badaniu AtoZ.")
+```
+
+Patrząc na dane wydaje się, że wskaźniki są nieco inne w poszczególnych grupach, z większą liczbą przypadków zespołu metabolicznego w dietach Ornisha i Zone -- które były właśnie dietami o gorszych wynikach.  Powiedzmy, że jesteśmy zainteresowani sprawdzeniem, czy wskaźnik zespołu metabolicznego różnił się znacząco między grupami, ponieważ może to nas zaniepokoić, że te różnice mogły wpłynąć na wyniki diety.
+
+#### Określenie odpowiedniego modelu.
+
+* Jaki rodzaj zmiennej zależnej?
+    * proporcje.
+* Co porównujemy?
+    * proporcje z zespołem metabolicznym w czterech grupach dietetycznych
+    * test chi-squared dla dobroci dopasowania jest odpowiedni wobec hipotezy zerowej o braku różnicy
+
+Najpierw obliczmy tę statystykę, używając funkcji testu chi-squared w naszym oprogramowaniu statystycznym:
+
+``{r echo=FALSE}
+contTable <- as.matrix(summaryDf[,9:10])
+chisq.test(contTable)
+```
+
+Ten test pokazuje, że nie ma znaczącej różnicy między środkami. Nie mówi nam jednak, jak bardzo jesteśmy pewni, że nie ma różnicy; pamiętaj, że w ramach NHST zawsze pracujemy przy założeniu, że null jest prawdziwy, chyba że dane pokazują nam wystarczająco dużo dowodów, aby spowodować odrzucenie hipotezy zerowej.
+
+A co jeśli chcemy określić ilościowo dowody za lub przeciw hipotezie zerowej?  Możemy to zrobić za pomocą współczynnika Bayesa.
+
+``{r echo=FALSE}
+
+bf <- contingencyTableBF(contTable,
+                         sampleType = "indepMulti",
+                         fixedMargin = "cols")
+bf
+```
+
+To pokazuje nam, że hipoteza alternatywna jest 0,058 razy bardziej prawdopodobna niż hipoteza zerowa, co oznacza, że hipoteza zerowa jest 1/0,058 ~ 17 razy bardziej prawdopodobna niż hipoteza alternatywna biorąc pod uwagę te dane. Jest to dość silny, jeśli nie całkowicie przytłaczający, dowód na korzyść hipotezy zerowej.
+
+## Uzyskanie pomocy
+
+Zawsze, gdy analizuje się prawdziwe dane, warto sprawdzić swój plan analizy z doświadczonym statystykiem, ponieważ istnieje wiele potencjalnych problemów, które mogą pojawić się w prawdziwych danych.  W rzeczywistości najlepiej jest porozmawiać ze statystykiem zanim jeszcze rozpoczniesz projekt, ponieważ jego rady dotyczące projektu lub realizacji badania mogą zaoszczędzić Ci poważnego bólu głowy w dalszej części drogi.  Większość uniwersytetów posiada biura doradztwa statystycznego, które oferują bezpłatną pomoc członkom społeczności uniwersyteckiej.  Zrozumienie treści tej książki nie uchroni Cię przed potrzebą skorzystania z ich pomocy w pewnym momencie, ale pomoże Ci prowadzić z nimi bardziej świadomą rozmowę i lepiej zrozumieć oferowane przez nich porady.

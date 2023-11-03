@@ -1,0 +1,424 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+---
+# Comparing means {#comparing-means}
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(fivethirtyeight)
+library(BayesFactor)
+library(lme4)
+library(lmerTest)
+library(cowplot)
+library(knitr)
+library(emmeans)
+
+set.seed(123456) # set random seed to exactly replicate results
+
+# load the NHANES data library
+library(NHANES)
+
+# drop duplicated IDs within the NHANES dataset
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID,.keep_all=TRUE)
+
+NHANES_adult <-
+  NHANES %>%
+  subset(Age>=18) %>%
+  drop_na(BMI)
+
+
+```
+
+Spotkaliśmy się już z kilkoma przypadkami, w których chcieliśmy zadać pytanie o średnią z próby.  W tym rozdziale zagłębimy się w różne sposoby, w jakie możemy porównywać średnie w różnych grupach.
+
+
+## Testowanie wartości pojedynczej średniej {#single-mean}
+
+Najprostszym pytaniem, jakie możemy chcieć zadać średniej, jest to, czy ma ona określoną wartość.  Powiedzmy, że chcemy sprawdzić, czy średnia wartość rozkurczowego ciśnienia krwi u osób dorosłych ze zbioru danych NHANES jest większa niż 80, co jest wartością graniczną dla nadciśnienia według American College of Cardiology.  Aby zadać to pytanie, weźmiemy próbę 200 dorosłych; każdemu z nich zmierzono ciśnienie krwi trzy razy, a do naszego testu użyjemy średniej z tych pomiarów.
+
+``{r echo=FALSE}
+NHANES_sample <-
+  NHANES_adult %>%
+  drop_na(BPDiaAve) %>%
+  mutate(Hypertensive = BPDiaAve > 80) %>%
+  sample_n(200)
+
+```
+
+
+Jednym z prostych sposobów sprawdzenia tej różnicy jest użycie testu zwanego *testem znaku*, który pyta, czy proporcja dodatnich różnic między wartością rzeczywistą a wartością hipotetyczną jest inna niż ta, której spodziewalibyśmy się przez przypadek.  Aby to zrobić, bierzemy różnice między każdym punktem danych a hipotetyczną wartością średnią i obliczamy ich znak.  Jeśli dane są normalnie rozłożone i rzeczywista średnia jest równa hipotezie, to proporcja wartości powyżej hipotezowanej średniej (lub poniżej niej) powinna wynosić 0,5, tak więc proporcja dodatnich różnic powinna również wynosić 0,5.  W naszej próbce widzimy, że `r I(sprintf('%0.1f',mean(NHANES_sample$Hypertensive)*100))` procent osób ma rozkurczowe ciśnienie krwi powyżej 80.  Możemy następnie użyć testu dwumianowego, aby zapytać, czy ten odsetek pozytywnych różnic jest większy niż 0,5, używając funkcji testowania dwumianowego w naszym oprogramowaniu statystycznym:
+
+``{r echo=FALSE}
+# oblicz test znakowy dla różnic między pierwszym i drugim pomiarem
+npos <- sum(NHANES_sample$Hypertensive)
+bt <- binom.test(npos, nrow(NHANES_sample), alternative='greater')
+bt
+```
+
+Widzimy tutaj, że odsetek osób z dodatnimi objawami nie jest zbyt zaskakujący pod hipotezą zerową $p 0,5$, co nie powinno nas dziwić, biorąc pod uwagę, że obserwowana wartość jest w rzeczywistości mniejsza niż 0,5$.
+
+Możemy również zadać to pytanie, wykorzystując test t-Studenta, z którym zetknąłeś się już we wcześniejszej części książki.  Średnią będziemy określać jako $bar{X}$, a hipotezowaną średnią populacji jako $mu$.  Wówczas test t dla pojedynczej średniej wynosi:
+
+$$
+t = \frac{bar{X} - \mu}{SEM}
+$$
+gdzie SEM (jak może pamiętasz z rozdziału o próbkowaniu) definiuje się jako:
+
+$$
+SEM = ′frac{sigma}}{sqrt{n}}
+$$
+
+W istocie statystyka t pyta, jak duże jest odchylenie średniej z próby od założonej wielkości w odniesieniu do zmienności próbkowania średniej.
+
+Możemy to obliczyć dla zbioru danych NHANES używając naszego oprogramowania statystycznego:
+
+``{r echo=FALSE, warning=FALSE, message=FALSE}
+
+tt = t.test(x=NHANES_adult$BPDiaAve, mu=80, alternative='greater')
+tt
+```
+
+To pokazuje nam, że średnie rozkurczowe ciśnienie krwi w zbiorze danych (`r I(sprintf('%0.1f', tt$estimate))`) jest w rzeczywistości znacznie niższe niż 80, więc nasz test na to, czy jest powyżej 80, jest bardzo daleki od istotności.
+
+Pamiętaj, że duża wartość p nie dostarcza nam dowodów na korzyść hipotezy zerowej, ponieważ na początek założyliśmy już, że hipoteza zerowa jest prawdziwa. Jednakże, jak omawialiśmy w rozdziale poświęconym analizie bayesowskiej, możemy użyć współczynnika Bayesa do ilościowego określenia dowodów za lub przeciw hipotezie zerowej:
+
+``{r message=FALSE, warning=FALSE}
+ttestBF(NHANES_sample$BPDiaAve, mu=80, nullInterval=c(-Inf, 80))
+```
+
+Pierwszy wymieniony tu współczynnik Bayesa ($2.73 * 10^{16}$) oznacza, że istnieje niezwykle silny dowód na korzyść hipotezy zerowej w stosunku do alternatywnej.
+
+## Porównanie dwóch średnich {#comparing-two-means}
+
+Bardziej powszechne pytanie, które często pojawia się w statystyce, dotyczy tego, czy istnieje różnica między średnimi dwóch różnych grup.  Powiedzmy, że chcielibyśmy się dowiedzieć, czy osoby regularnie palące marihuanę oglądają więcej telewizji, o co również możemy zapytać, korzystając ze zbioru danych NHANES. Bierzemy próbę 200 osób ze zbioru danych i testujemy, czy liczba godzin oglądania telewizji dziennie jest związana z regularnym używaniem marihuany.  Lewy panel wykresu \u0026apos; pokazuje te dane za pomocą wykresu skrzypiec.
+
+``{r PotTVViolin,echo=FALSE,fig.cap='Left: Violin plot showing distributions of TV watching separated by regular marijuana use. Right: Violin plots pokazujące dane dla każdej grupy, z linią przerywaną łączącą wartości przewidywane dla każdej grupy, obliczone na podstawie wyników modelu liniowego.... ',fig.width=8,fig.height=4,out.height='50%'}
+
+# utwórz próbę z oglądaniem telewizji i używaniem marihuany
+NHANES_sample <-
+  NHANES_adult %>%
+  drop_na(TVHrsDay, RegularMarij) %>%
+  mutate(
+    TVHrsNum = recode( #przekoduj wartości znaków na wartości numeryczne
+      TVHrsDay,
+      "Więcej_4_godzin" = 5,
+      "4_hr" = 4,
+      "2_hr" = 2,
+      "1_hr" = 1,
+      "3_hr" = 3,
+      "0_do_1_godziny" = 0,5,
+      "0_godzin" = 0
+    )
+  ) %>%
+  sample_n(200)
+
+p1 <- ggplot(NHANES_sample,aes(RegularMarij,TVHrsNum)) +
+  geom_violin(draw_quantiles=.50) +
+  labs(
+    x = "Regularny użytkownik marihuany",
+    y = "Godziny oglądania telewizji dziennie"
+  )
+
+lm_summary <- summary(lm(TVHrsNum ~ RegularMarij, data = NHANES_sample))
+
+ttresult <- t.test(
+  TVHrsNum ~ RegularMarij,
+  dane = NHANES_sample,
+  alternatywa = 'mniej'
+)
+
+p2 <- ggplot(NHANES_sample,aes(RegularMarij,TVHrsNum)) +
+  geom_violin() +
+  annotate('segment',x=1,y=lm_summary$coefficients[1,1],
+           xend=2,
+           yend=lm_summary$coefficients[1,1]+lm_summary$coefficients[2,1],
+           linetype='dotted') +
+  labs(
+    x = "Regularny użytkownik marihuany",
+    y = "Godziny oglądania telewizji dziennie"
+  )
+
+plot_grid(p1, p2)
+```
+
+Możemy również użyć testu t-Studenta do testowania różnic między dwiema grupami niezależnych obserwacji (co widzieliśmy we wcześniejszym rozdziale); w dalszej części rozdziału zwrócimy się do przypadków, w których obserwacje nie są niezależne.  Dla przypomnienia, statystyka t dla porównania dwóch niezależnych grup jest obliczana jako:
+
+$$
+t = \frac{bar{X_1} - \bar{X_2}}{\sqrt{\frac{S_1^2}{n_1} + ﬁrrac{S_2^2}{n_2}}}.
+$$
+
+gdzie $bar{X}_1$ i $bar{X}_2$ to średnie obu grup, $S^2_1$ i $S^2_2$ to wariancje dla każdej z grup, a $n_1$ i $n_2$ to liczebności obu grup.  Przy hipotezie zerowej o braku różnicy między średnimi, statystyka ta ma rozkład zgodny z rozkładem t, ze stopniami swobody obliczonymi za pomocą testu Welcha (omówionego wcześniej), ponieważ liczba osobników różni się między dwiema grupami. W tym przypadku zaczęliśmy od konkretnej hipotezy, że palenie marihuany jest związane z większym oglądaniem telewizji, więc użyjemy testu jednooka.  Oto wyniki z naszego oprogramowania statystycznego:
+
+``{r echo=FALSE,warning=FALSE}
+# compute t test for tv watching as function of marijuana use
+ttresult
+```
+
+W tym przypadku widzimy, że istnieje statystycznie istotna różnica między grupami, w oczekiwanym kierunku - osoby regularnie palące trawkę oglądają więcej telewizji.
+
+## Test t jako model liniowy {#ttest-linear-model}
+
+Test t jest często przedstawiany jako specjalistyczne narzędzie do porównywania średnich, ale można go również postrzegać jako zastosowanie ogólnego modelu liniowego.  W tym przypadku model wyglądałby następująco:
+
+$$
+\$$ = $$ = $$ = marihuana + $$ = $$ = marihuana.
+$$
+Ponieważ palenie jest zmienną binarną, traktujemy ją jako *zmienną dummy*, tak jak to omawialiśmy w poprzednim rozdziale, ustawiając ją na wartość 1 dla palaczy i zero dla niepalących.  W takim przypadku $hat{beta_1}$ jest po prostu różnicą średnich między dwiema grupami, a $hat{beta_0}$ jest średnią dla grupy, która została zakodowana jako zero.  Możemy dopasować ten model za pomocą funkcji ogólnego modelu liniowego w naszym oprogramowaniu statystycznym i zobaczyć, że daje on taką samą statystykę t jak powyższy test t, z tym że w tym przypadku jest ona dodatnia ze względu na sposób, w jaki nasze oprogramowanie układa grupy:
+
+``{r echo=FALSE, warning=FALSE}
+# drukuj podsumowanie regresji liniowej w celu wykonania testu t
+lm_summary
+```
+
+Wyniki modelu liniowego możemy również obejrzeć graficznie (patrz prawy panel rysunku ‗ref(fig:PotTVViolin)).  W tym przypadku, przewidywana wartość dla osób niepalących wynosi $hat{beta_0}$ (`r I(sprintf('%0.1f', lm_summary$coefficients[1,1]))`), a przewidywana wartość dla osób palących wynosi $hat{beta_0} + $hat{beta_1}$ (`r I(sprintf('%0.1f', lm_summary$coefficients[1,1] + lm_summary$coefficients[2,1]))`).  
+
+Aby obliczyć błędy standardowe dla tej analizy, możemy użyć dokładnie tych samych równań, których użyliśmy dla regresji liniowej -- ponieważ to naprawdę jest tylko kolejny przykład regresji liniowej.  W rzeczywistości, jeśli porównamy p-wartość z powyższego testu t z p-wartością z analizy regresji liniowej dla zmiennej używania marihuany, zobaczymy, że ta z analizy regresji liniowej jest dokładnie dwa razy większa niż ta z testu t, ponieważ analiza regresji liniowej przeprowadza test dwuogonowy.  
+
+### Wielkość efektu dla porównania dwóch średnich
+
+  Dla testu t oszacowanego przy użyciu ogólnego modelu liniowego przedstawionego powyżej (tj. z pojedynczą zmienną kodowaną dummy), wyraża się to jako:
+
+$$
+d = \frac{hat{beta_1}}{sigma_{residual}}
+$$
+Możemy uzyskać te wartości z powyższego wyjścia analizy, co daje nam d = `r I(sprintf('%0.2f', lm_summary$coefficients[2,1]/lm_summary$sigma))`, co generalnie zinterpretowalibyśmy jako efekt średniej wielkości.
+
+Możemy również obliczyć $R^2$ dla tej analizy, która mówi nam, jaka część wariancji w oglądaniu telewizji jest uwzględniona przez palenie marihuany.  Wartość ta (która jest podana na dole podsumowania analizy modelu liniowego powyżej) wynosi `r I(sprintf('%0.2f',lm_summary$r.squared))`, co mówi nam, że podczas gdy efekt może być statystycznie istotny, odpowiada on za stosunkowo niewielką część wariancji oglądania telewizji.
+
+## Współczynnik Bayesa dla różnic średnich
+
+Jak omawialiśmy w rozdziale o analizie bayesowskiej, współczynniki Bayesa zapewniają sposób na lepsze określenie ilościowe dowodów na korzyść lub niekorzyść hipotezy zerowej o braku różnicy.  Możemy przeprowadzić tę analizę na tych samych danych:
+
+``{r echo=FALSE}
+# compute bayes factor for group comparison
+# W tym przypadku chcemy konkretnie przetestować przeciwko hipotezie zerowej, że różnica jest większa niż zero - ponieważ różnica jest obliczana przez funkcję między pierwszą grupą ("Nie") a drugą grupą ("Tak"). Tak więc określamy "przedział zerowy" idący od zera do nieskończoności, co oznacza, że alternatywa jest mniejsza niż zero.
+bf <- ttestBF(
+  formula = TVHrsNum ~ RegularMarij,
+  dane = NHANES_sample,
+  nullInterval = c(0, Inf)
+)
+bf
+```
+
+Ze względu na sposób organizacji danych, druga linia pokazuje nam odpowiedni współczynnik Bayesa dla tej analizy, który wynosi 61,4. To pokazuje nam, że dowody przeciwko hipotezie zerowej są dość silne.
+
+## Porównywanie sparowanych obserwacji {#paired-ttests}
+
+W badaniach eksperymentalnych często używamy projektów *within-subjects*, w których porównujemy tę samą osobę na wielu pomiarach.  Pomiary wynikające z tego rodzaju projektu są często określane jako *powtórzone pomiary*. Na przykład, w zbiorze danych NHANES ciśnienie krwi było mierzone trzy razy. Powiedzmy, że jesteśmy zainteresowani sprawdzeniem, czy istnieje różnica w średnim skurczowym ciśnieniu krwi między pierwszym i drugim pomiarem u osób w naszej próbie (rys.
+
+
+``{r BPfig, echo=FALSE,fig.cap="Left: Violin plot of systolic blood pressure on first and second recording, from NHANES. Po prawej: Ten sam wykres skrzypcowy z liniami łączącymi dwa punkty danych dla każdej osoby.',fig.width=8,fig.height=4,out.height='50%'}
+
+set.seed(12345678)
+
+NHANES_sample <-
+  NHANES %>%
+  dplyr::filter(Age>17 & !is.na(BPSys2) & !is.na(BPSys1)) %>%
+  dplyr::select(BPSys1,BPSys2,ID) %>%
+  sample_n(200)
+
+NHANES_sample_tidy <-
+  NHANES_sample %>%
+  gather(timepoint,BPsys,-ID)
+
+NHANES_sample <-
+  NHANES_sample %>%
+  mutate(
+    diff=BPSys1-BPSys2,
+    diffPos=as.integer(diff>0),
+    meanBP=(BPSys1+BPSys2)/2
+  )
+
+p1 <- ggplot(NHANES_sample_tidy,aes(timepoint,BPsys)) +
+  geom_violin() +
+  scale_x_discrete(
+    labels = c("Czas 1", "Czas 2"),
+  )
+p2 <- p1 +geom_line(aes(group=ID))
+
+plot_grid(p1, p2)
+```
+
+Widzimy, że nie wydaje się, aby istniała duża różnica w średnim ciśnieniu krwi (około jednego punktu) pomiędzy pierwszym i drugim pomiarem. Najpierw przetestujmy różnicę używając testu t dla prób niezależnych, który ignoruje fakt, że pary punktów danych pochodzą od tych samych osób.   
+
+``{r echo=FALSE}
+t.test(
+  BPsys ~ timepoint,
+  data = NHANES_sample_tidy,
+  paired = FALSE,
+  var.equal = TRUE
+)
+```
+
+Ta analiza nie pokazuje żadnej istotnej różnicy. Jednak ta analiza jest niewłaściwa, ponieważ zakłada, że dwie próbki są niezależne, podczas gdy w rzeczywistości nie są, ponieważ dane pochodzą od tych samych osób.  Możemy wykreślić dane z linią dla każdego osobnika, aby to pokazać (patrz prawy panel na rycinie \u0026apos; fig:BPfig).
+
+W tej analizie zależy nam na tym, czy ciśnienie krwi każdej osoby zmieniło się w sposób systematyczny między dwoma pomiarami, więc innym sposobem przedstawienia danych jest obliczenie różnicy między dwoma punktami czasowymi dla każdej osoby, a następnie przeanalizowanie tych różnic zamiast analizowania poszczególnych pomiarów. Na rysunku pokazujemy histogram tych różnic, z niebieską linią oznaczającą średnią różnicę.
+
+``{r BPDiffHist,echo=FALSE,fig.cap="Histogram różnic między pierwszym i drugim pomiarem ciśnienia tętniczego. Pionowa linia przedstawia średnią różnicę w próbie.",fig.width=4,fig.height=4,out.height='50%'}
+
+ggplot(NHANES_sample,aes(diff)) +
+  geom_histogram(bins=30) +
+  geom_vline(xintercept = mean(NHANES_sample$diff),color='blue')
+
+```
+
+### Test znaków
+
+Jednym z prostych sposobów na sprawdzenie różnic jest użycie *testu znaku*. Aby to zrobić, bierzemy różnice i obliczamy ich znak, a następnie używamy testu dwumianowego, aby zapytać, czy proporcja pozytywnych znaków różni się od 0,5.
+
+``{r echo=FALSE}
+# oblicz test znakowy dla różnic między pierwszym i drugim pomiarem
+npos <- suma(NHANES_sample$diffPos)
+bt <- binom.test(npos, nrow(NHANES_sample))
+bt
+```
+
+Widzimy tutaj, że odsetek osób z pozytywnymi znakami (`r I(bt$estimate)`) nie jest na tyle duży, aby był zaskakujący przy hipotezie zerowej $p=0,5$. Jednak jeden problem z testem znakowym polega na tym, że wyrzuca on informację o wielkości różnic, a więc może coś pominąć.
+
+### Paired t-test
+Bardziej powszechną strategią jest użycie *parowanego testu t*, który jest równoważny jednopróbkowemu testowi t na to, czy średnia różnica między pomiarami w obrębie każdej osoby jest zerowa.  Możemy to obliczyć za pomocą naszego oprogramowania statystycznego, mówiąc mu, że punkty danych są sparowane:
+
+``{r echo=FALSE}
+# oblicz sparowany test t
+t.test(BPsys ~ timepoint, data = NHANES_sample_tidy, paired = TRUE)
+
+```
+
+Dzięki tym analizom widzimy, że w rzeczywistości istnieje znacząca różnica między dwoma pomiarami. Obliczmy współczynnik Bayesa, aby zobaczyć, jak wiele dowodów dostarcza ten wynik:
+
+``{r echo=FALSE}
+# oblicz współczynnik Bayesa dla sparowanego testu t
+ttestBF(x = NHANES_sample$BPSys1, y = NHANES_sample$BPSys2, paired = TRUE)
+
+```
+
+Zaobserwowany współczynnik Bayesa wynoszący 2,97 mówi nam, że chociaż efekt był znaczący w sparowanym teście t, w rzeczywistości dostarcza bardzo słabych dowodów na korzyść hipotezy alternatywnej.
+
+Sparowany test t może być również zdefiniowany w kategoriach modelu liniowego; więcej szczegółów na ten temat znajdziesz w Dodatku.
+
+## Porównywanie więcej niż dwóch średnich
+
+Często chcemy porównać więcej niż dwie średnie, aby określić, czy któraś z nich różni się od innej.  Powiedzmy, że analizujemy dane z badania klinicznego dotyczącego leczenia wysokiego ciśnienia krwi.  W badaniu ochotnicy są randomizowani do jednego z trzech warunków: Lek 1, Lek 2 lub placebo.  Wygenerujmy kilka danych i wykreślmy je (patrz rysunek \u0026apos; fig:DrugTrial)
+
+`{r DrugTrial, echo=FALSE,fig.cap='Box plots showing blood pressure for three different groups in our clinical trial.',fig.width=4,fig.height=4,out.height='50%'}
+
+set.seed(123456)
+
+nPerGroup <- 36
+noiseSD <- 10
+meanSysBP <- 140
+effectSize <- 0.8
+df <- data.frame(
+  group=as.factor(c(rep('placebo',nPerGroup),
+                    rep('lek1',nPerGroup),
+                    rep('lek2',nPerGroup)),
+  sysBP=NA)
+
+df$sysBP[df$group='placebo'] <- rnorm(nPerGroup,mean=meanSysBP,sd=noiseSD)
+df$sysBP[df$group='drug1'] <- rnorm(nPerGroup,mean=meanSysBP-noiseSD*effectSize,sd=noiseSD)
+df$sysBP[df$group=='drug2'] <- rnorm(nPerGroup,mean=meanSysBP,sd=noiseSD)
+
+ggplot(df,aes(group,sysBP)) + geom_boxplot()
+```
+
+### Analiza wariancji {#ANOVA}
+
+Najpierw chcielibyśmy przetestować hipotezę zerową, że średnie wszystkich grup są równe -- to znaczy, że żadna z terapii nie miała żadnego efektu w porównaniu z placebo. Możemy to zrobić za pomocą metody zwanej *analizą wariancji* (ANOVA). Jest to jedna z najczęściej stosowanych metod w statystyce psychologicznej, a my tutaj tylko zarysujemy jej powierzchnię.  Podstawową ideą ANOVA jest ta, którą omówiliśmy już w rozdziale poświęconym ogólnemu modelowi liniowemu, a w rzeczywistości ANOVA jest tylko nazwą dla specyficznej wersji takiego modelu.
+
+Pamiętasz z ostatniego rozdziału, że możemy podzielić całkowitą wariancję danych ($SS_{total}$) na wariancję wyjaśnianą przez model ($SS_{model}$) i wariancję, która nie jest wyjaśniana ($SS_{error}$).  Następnie możemy obliczyć *średnią kwadratową* dla każdej z nich, dzieląc je przez ich stopnie swobody; dla błędu jest to $N - p$ (gdzie $p$ to liczba obliczonych przez nas średnich), a dla modelu jest to $p - 1$:
+
+$$
+MS_{model} =\frac{SS_{model}}{df_{model}}= \frac{SS_{model}}{p-1}
+$$
+
+$$
+MS_{error} = ﬁrac{SS_{error}}{df_{error}} = ﬁrac{SS_{error}}{N - p}
+$$
+
+W przypadku ANOVA chcemy sprawdzić, czy wariancja uwzględniona przez model jest większa niż ta, której spodziewalibyśmy się przypadkowo, przy hipotezie zerowej o braku różnic między średnimi.  Podczas gdy dla rozkładu t wartością oczekiwaną jest zero przy hipotezie zerowej, w tym przypadku tak nie jest, ponieważ sumy kwadratów są zawsze liczbami dodatnimi.  Na szczęście istnieje inny rozkład teoretyczny, który opisuje, jak rozkładają się proporcje sum kwadratów przy hipotezie zerowej: Rozkład *F* (patrz rysunek _______________________________). Rozkład ten ma dwa stopnie swobody, które odpowiadają stopniom swobody dla licznika (którym w tym przypadku jest model), oraz mianownika (którym w tym przypadku jest błąd).
+
+``{r FDist, echo=FALSE,fig.cap='Rozkłady F pod hipotezą zerową, dla różnych wartości stopni swobody.',fig.width=4,fig.height=4,out.height='50%'}
+fdata <-
+  data.frame(x=seq(0.1,10,.1)) %>%
+  mutate(
+    f_1_1=df(x,1,1),
+    f_1_50=df(x,1,50),
+    f_10_50=df(x,10,50)
+  )
+
+ggplot(fdata,aes(x,f_1_1)) +
+  geom_line() +
+  geom_line(aes(x,f_1_50),linetype='dotted') +
+  geom_line(aes(x,f_10_50),linetype='dashed') +
+  labs(y = "Gęstość", x = "Wartości F")
+
+
+```
+
+
+Aby stworzyć model ANOVA, rozszerzamy ideę *kodowania dummy*, z którą zetknąłeś się w ostatnim rozdziale. Pamiętaj, że dla testu t porównującego dwie średnie stworzyliśmy jedną zmienną dummy, która przyjmowała wartość 1 dla jednego z warunków i zero dla pozostałych.  Tutaj rozszerzamy ten pomysł, tworząc dwie zmienne dummy, jedną, która koduje warunek Lek 1 i drugą, która koduje warunek Lek 2.  Podobnie jak w teście t, będziemy mieli jeden warunek (w tym przypadku placebo), który nie ma zmiennej dummy, a zatem reprezentuje linię odniesienia, z którą porównywane są pozostałe; jego średnia określa punkt przecięcia modelu. Używając kodów dummy dla leków 1 i 2, możemy dopasować model przy użyciu tego samego podejścia, które zastosowaliśmy w poprzednim rozdziale:
+
+``{r echo=FALSE}
+# utwórz zmienne dummy dla drug1 i drug2
+df <-
+  df %>%
+  mutate(
+    d1 = as.integer(group == "drug1"), # 1s dla leku1, 0s dla wszystkich innych leków
+    d2 = as.integer(group == "drug2"), # 1s dla drug2, 0s dla wszystkich innych leków
+  )
+
+# testuj model bez oddzielnych duymmies
+lmResultAnovaBasic <- lm(sysBP ~ group, data=df)
+emm.result <- emmeans(lmResultAnovaBasic, "group" )
+# pairs(emm.result)
+```
+
+``{r echo=FALSE}
+# dopasuj model ANOVA
+lmResultANOVA <- lm(sysBP ~ d1 + d2, data = df)
+summary(lmResultANOVA)
+```
+Wyjście z tego polecenia dostarcza nam dwóch rzeczy.  Po pierwsze, pokazuje nam wynik testu t dla każdej ze zmiennych dummy, które w zasadzie mówią nam, czy każdy z warunków oddzielnie różni się od placebo; wydaje się, że lek 1 różni się, podczas gdy lek 2 nie.  Należy jednak pamiętać, że gdybyśmy chcieli zinterpretować te testy, musielibyśmy skorygować wartości p, aby uwzględnić fakt, że przeprowadziliśmy wielokrotne testy hipotez; przykład, jak to zrobić, zobaczymy w następnym rozdziale.
+
+Pamiętajmy, że hipoteza, którą chcieliśmy przetestować na początku, dotyczyła tego, czy istnieje jakakolwiek różnica między którymkolwiek z warunków; nazywamy to testem hipotezy *omnibus* i jest to test, który zapewnia statystyka F. Statystyka F w zasadzie mówi nam, czy nasz model jest lepszy niż prosty model, który zawiera tylko przechwyt.  W tym przypadku widzimy, że test F jest wysoce znaczący, co jest zgodne z naszym wrażeniem, że istnieją różnice między grupami (które w rzeczywistości wiemy, że istnieją, ponieważ stworzyliśmy dane).
+
+``{r echo=FALSE}
+# Add section on post-hoc tests using emmeans
+
+```
+
+## Cele nauczania
+
+Po przeczytaniu tego rozdziału powinieneś umieć:
+
+* Opisać przesłanki stojące za testem znakowym.
+* Opisać jak test t może być użyty do porównania pojedynczej średniej z wartością hipotetyczną
+* Porównać średnie dla dwóch grup sparowanych lub niesparowanych za pomocą testu t dla dwóch prób.
+* Opisać, jak analiza wariancji może być użyta do testowania różnic pomiędzy więcej niż dwoma średnimi.
+
+
+## Dodatek
+
+### Test t jako model liniowy
+
+Możemy również zdefiniować sparowany test t w kategoriach ogólnego modelu liniowego.  W tym celu dołączamy wszystkie pomiary dla każdego uczestnika jako punkty danych (w uporządkowanej ramce danych).  Następnie włączamy do modelu zmienną, która koduje tożsamość każdej osoby (w tym przypadku zmienna ID, która zawiera identyfikator podmiotu dla każdej osoby). Jest to tzw. model *mieszany*, ponieważ obejmuje on zarówno efekty zmiennych niezależnych, jak i efekty poszczególnych osób.  Standardowa procedura dopasowania modelu ``lm()`` nie może tego zrobić, ale możemy to zrobić używając funkcji ``lmer()`` z popularnego pakietu R zwanego *lme4*, który jest wyspecjalizowany do estymacji modeli mieszanych.  Funkcja ``(1|ID)`` we wzorze mówi ``lmer()`` aby oszacować oddzielny intercept (do czego odnosi się ``1``) dla każdej wartości zmiennej ``ID`` (tj. dla każdego osobnika w zestawie danych), a następnie oszacować wspólne nachylenie odnoszące punkt czasowy do BP.
+
+``{r,messages=FALSE}
+# oblicz model mieszany dla testu sparowanego
+
+lmrResult <- lmer(BPsys ~ timepoint + (1 | ID),
+                  data = NHANES_sample_tidy)
+summary(lmrResult)
+```
+
+Można zauważyć, że pokazuje nam to wartość p, która jest bardzo bliska wynikowi ze sparowanego testu t obliczonego przy użyciu funkcji ``t.test()``.

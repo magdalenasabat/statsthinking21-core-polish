@@ -1,0 +1,1127 @@
+---
+output:
+  html_document: default
+  pdf_document: domyślny
+  bookdown::gitbook:
+    lib_dir: "book_assets"
+    includes:
+      in_header: google_analytics.html
+---
+# Dopasowanie modeli do danych {#fitting-models}
+
+``{r echo=FALSE,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(NHANES)
+library(cowplot)
+library(mapproj)
+library(pander)
+biblioteka(knitr)
+library(modelr)
+
+panderOptions('round',2)
+panderOptions('cyfry',7)
+
+options(digits = 2)
+set.seed(123456) # set random seed to exactly replicate results
+
+```
+
+Jednym z podstawowych działań w statystyce jest tworzenie modeli, które mogą podsumować dane za pomocą niewielkiego zestawu liczb, zapewniając tym samym zwarty opis danych.  W tym rozdziale omówimy pojęcie modelu statystycznego oraz to, jak można go wykorzystać do opisu danych.
+
+## Czym jest model?
+
+W świecie fizycznym "modele" to zazwyczaj uproszczenia rzeczy w świecie rzeczywistym, które jednak oddają istotę rzeczy modelowanej. Model budynku oddaje jego strukturę, a jednocześnie jest na tyle mały i lekki, że można go wziąć do ręki; model komórki w biologii jest znacznie większy niż rzeczywista rzecz, ale ponownie oddaje główne części komórki i ich relacje.  
+
+W statystyce model ma zapewnić podobnie skondensowany opis, ale dla danych, a nie dla struktury fizycznej. Podobnie jak modele fizyczne, model statystyczny jest na ogół znacznie prostszy niż opisywane dane; ma on za zadanie uchwycić strukturę danych w możliwie najprostszy sposób. W obu przypadkach zdajemy sobie sprawę, że model jest wygodną fikcją, która z konieczności pomija niektóre szczegóły rzeczywistej rzeczy, która jest modelowana. Jak słynnie powiedział statystyk George Box: "Wszystkie modele są złe, ale niektóre są użyteczne".  Przydatne może być również myślenie o modelu statystycznym jako teorii tego, jak zostały wygenerowane obserwowane dane; naszym celem staje się wtedy znalezienie modelu, który najskuteczniej i najdokładniej podsumowuje sposób, w jaki dane zostały faktycznie wygenerowane. Jak jednak zobaczymy poniżej, pragnienia efektywności i dokładności będą często diametralnie różne.
+
+Podstawowa struktura modelu statystycznego to:
+
+$$
+dane = model + błąd
+$$
+
+Wyraża to ideę, że dane można rozbić na dwie części: jedną część opisywaną przez model statystyczny, który wyraża wartości, jakich oczekujemy od danych, biorąc pod uwagę naszą wiedzę, oraz drugą część, którą nazywamy *błędem*, odzwierciedlającą różnicę między przewidywaniami modelu a obserwowanymi danymi.
+
+W zasadzie chcielibyśmy użyć naszego modelu do przewidywania wartości danych dla każdej obserwacji. Równanie zapisalibyśmy w ten sposób:
+
+$$
+\Wszechstronnyhat{data_i} = model_i
+$$
+Czapka" nad danymi oznacza, że jest to nasze przewidywanie, a nie rzeczywista wartość danych.Oznacza to, że przewidywana wartość danych dla obserwacji $i$ jest równa wartości modelu dla tej obserwacji.   Gdy mamy już predykcję z modelu, możemy następnie obliczyć błąd:
+
+$$
+error_i = dane_i - \u200 \u200 \u200 \u200 \u200 \u200
+$$
+Czyli błąd dla dowolnej obserwacji to różnica między obserwowaną wartością danych a przewidywaną wartością danych z modelu.
+
+## Modelowanie statystyczne: Przykład.
+
+Przyjrzyjmy się przykładowi budowania modelu dla danych, wykorzystując dane z NHANES.  W szczególności spróbujemy zbudować model wzrostu dzieci w próbie NHANES. Najpierw wczytajmy dane i wykreślmy je (patrz rysunek \u0026.pl).
+
+`{r childHeight,echo=FALSE,fig.cap="Histogram wysokości dzieci w próbie NHANES.",fig.width=4,fig.height=4,out.height='50%'}
+
+# usuń zduplikowane identyfikatory w zbiorze danych NHANES
+NHANES <-
+  NHANES %>%
+  dplyr::distinct(ID, .keep_all = TRUE)
+
+# wybierz odpowiednie dzieci z dobrymi pomiarami wzrostu
+
+NHANES_child <-
+  NHANES %>%
+  drop_na(Height) %>%
+  subset(Age < 18)
+
+NHANES_child %>%
+  ggplot(aes(Height)) +
+  geom_histogram(bins = 100)
+```
+
+Pamiętaj, że chcemy opisać dane w sposób jak najprostszy, a jednocześnie uchwycić ich ważne cechy. Najprostszy model, jaki możemy sobie wyobrazić, obejmowałby tylko jedną liczbę; to znaczy, że model przewidywałby tę samą wartość dla każdej obserwacji, niezależnie od tego, co jeszcze moglibyśmy wiedzieć o tych obserwacjach.  Zazwyczaj opisujemy model w kategoriach jego *parametrów*, czyli wartości, które możemy zmienić, aby zmodyfikować przewidywania modelu.  W całej książce będziemy się do nich odnosić używając greckiej litery beta ($beta$); gdy model ma więcej niż jeden parametr, będziemy używać indeksowanych liczb do oznaczenia różnych bet (np. $beta_1$).  Zwyczajem jest również odwoływanie się do wartości danych za pomocą litery $y$, a także używanie indeksowanej wersji $y_i$ do odwoływania się do poszczególnych obserwacji.  
+
+Na ogół nie znamy prawdziwych wartości parametrów, więc musimy je oszacować na podstawie danych.  Z tego powodu będziemy na ogół umieszczać "czapkę" nad symbolem $y_i$, aby zaznaczyć, że używamy raczej oszacowania wartości parametru niż jego prawdziwej wartości (której na ogół nie znamy). Tak więc nasz prosty model dla wzrostu wykorzystujący jeden parametr brzmiałby:
+
+$$
+y_i = \beta + \epsilon
+$$
+
+Po prawej stronie równania nie pojawia się indeks $i$, co oznacza, że predykcja modelu nie zależy od tego, na którą obserwację patrzymy --- jest taka sama dla wszystkich.  Pytanie staje się więc takie: jak oszacować najlepsze wartości parametru (parametrów) w modelu? W tym konkretnym przypadku, jaka pojedyncza wartość jest najlepszym oszacowaniem dla $beta$?  I, co ważniejsze, jak w ogóle definiujemy *najlepsze*?
+
+``{r echo=FALSE}
+# create function to compute mode and apply to child height data from NHANES
+# R nie ma wbudowanej funkcji trybu
+getmode <- function(v) {
+  uniqv <- unique(v)
+  return(uniqv[which.max(tabulate(match(v, uniqv)))])
+}
+
+height_mode <- getmode(NHANES_child$Height)
+
+error_mode <- NHANES_child$Height - height_mode
+
+```
+
+Jednym z bardzo prostych estymatorów, które możemy sobie wyobrazić, jest *mode*, który jest po prostu najczęściej występującą wartością w zbiorze danych. Opisuje to na nowo cały zbiór `r I(dim(NHANES_child)[1])` dzieci w kategoriach jednej liczby. Gdybyśmy chcieli przewidzieć wysokość każdego nowego dziecka, to naszą przewidywaną wartością byłaby ta sama liczba:
+
+$$
+= 166,5
+$$
+Błąd dla każdego osobnika byłby wtedy różnicą między wartością przewidywaną ($$ hat{y_i}$) a jego rzeczywistym wzrostem ($y_i$):
+
+$$
+error_i = y_i - \u00{y_i}
+$$
+
+Jak dobry jest to model?  Ogólnie rzecz biorąc, dobroć modelu definiujemy w kategoriach wielkości błędu, który reprezentuje stopień, w jakim dane odbiegają od przewidywań modelu; wszystkie rzeczy są równe, model, który daje mniejszy błąd, jest lepszym modelem. (Chociaż, jak zobaczymy później, wszystkie rzeczy zwykle nie są równe...)
+W tym przypadku okazuje się, że przeciętny osobnik ma dość duży błąd `r I(mean(error_mode))` centymetrów, gdy używamy trybu jako naszego estymatora dla $beta$, co nie wydaje się zbyt dobre na pierwszy rzut oka.
+
+Jak możemy znaleźć lepszy estymator dla naszego parametru modelu?  Możemy zacząć od znalezienia estymatora, który da nam średni błąd równy zero. Dobrym kandydatem jest średnia arytmetyczna (czyli *średnia*, często oznaczana paskiem nad zmienną, np. $bar{X}$), obliczana jako suma wszystkich wartości podzielona przez liczbę wartości.  Matematycznie wyrażamy to jako:
+
+$$
+\ąbar{X} = ąfrac{sum_{i=1}^{n}x_i}{n}
+$$
+
+Okazuje się, że jeśli użyjemy średniej arytmetycznej jako naszego estymatora, to średni błąd rzeczywiście będzie równy zero (zobacz prosty dowód na końcu rozdziału, jeśli jesteś zainteresowany).  Nawet jeśli średnia błędów od średniej wynosi zero, możemy zobaczyć z histogramu na rysunku, że każda jednostka nadal ma pewien stopień błędu; niektóre są pozytywne, a niektóre negatywne, a te znoszą się nawzajem, dając średni błąd równy zero.
+
+``{r meanError, echo=FALSE,fig.cap="Rozkład błędów od średniej.",fig.width=4,fig.height=4,out.height='50%'}
+# oblicz błąd w stosunku do średniej i wykreśl histogram
+
+error_mean <- NHANES_child$Height - mean(NHANES_child$Height)
+
+ggplot(NULL, aes(error_mean)) +
+  geom_histogram(bins = 100) +
+  xlim(-60, 60) +
+  labs(
+    x = "Błąd przy przewidywaniu wzrostu za pomocą średniej"
+  )
+
+```
+
+Fakt, że błędy ujemne i dodatnie znoszą się wzajemnie oznacza, że dwa różne modele mogłyby mieć błędy o bardzo różnej wielkości w wartościach bezwzględnych, ale nadal miałyby ten sam błąd średni.  Właśnie dlatego błąd średni nie jest dobrym kryterium dla naszego estymatora; chcemy kryterium, które próbuje zminimalizować błąd całkowity niezależnie od jego kierunku.  Z tego powodu na ogół podsumowujemy błędy w kategoriach jakiejś miary, która liczy zarówno pozytywne, jak i negatywne błędy jako złe.  Moglibyśmy użyć wartości bezwzględnej każdej wartości błędu, ale bardziej powszechne jest używanie błędów kwadratowych, z powodów, które zobaczymy w dalszej części książki.
+
+Istnieje kilka powszechnych sposobów podsumowania błędu kwadratowego, które napotkasz w różnych punktach tej książki, więc ważne jest, aby zrozumieć, jak się one do siebie odnoszą.  Po pierwsze, możemy je po prostu dodać; jest to określane jako *suma błędów kwadratowych*.  Powodem, dla którego zazwyczaj nie używamy tej metody jest fakt, że jej wielkość zależy od liczby punktów danych, więc może być trudna do zinterpretowania, chyba że patrzymy na tę samą liczbę obserwacji.  Po drugie, moglibyśmy wziąć średnią kwadratowych wartości błędu, co jest określane jako *średni błąd kwadratowy (MSE)*.  Jednak ponieważ skwantowaliśmy wartości przed uśrednieniem, nie są one w tej samej skali co oryginalne dane; są w $centymetrach^2$.  Z tego powodu często bierze się również pierwiastek kwadratowy z MSE, który nazywamy *root mean squared error (RMSE)*, tak aby błąd był mierzony w tych samych jednostkach co oryginalne wartości (w tym przykładzie, centymetry).
+
+``{r echo=FALSE}
+# obliczyć i wydrukować RMSE dla średniej i trybu
+rmse_mean <- sqrt(mean(error_mean**2))
+
+rmse_mode <- sqrt(mean(error_mode**2))
+
+```
+
+Średnia ma całkiem spory błąd -- każdy pojedynczy punkt danych będzie średnio o `r I(sprintf('%.0f',rmse_mean))` cm od średniej -- ale i tak jest znacznie lepsza niż tryb, który ma błąd średniokwadratowy około `r I(sprintf('%.0f',rmse_mode))` cm.  
+
+### Poprawa naszego modelu
+
+Czy możemy sobie wyobrazić lepszy model? Pamiętajmy, że dane te pochodzą od wszystkich dzieci z próby NHANES, które wahają się od `r I(min(NHANES_child$Age))` do `r I(max(NHANES_child$Age))` lat.  Biorąc pod uwagę tak szeroki zakres wieku, moglibyśmy oczekiwać, że nasz model wysokości powinien również uwzględniać wiek.  Wykreślmy dane dotyczące wzrostu względem wieku, aby sprawdzić, czy ten związek rzeczywiście istnieje.
+
+``{r childHeightLine,echo=FALSE, message=FALSE, fig.cap="Wysokość dzieci w NHANES, wykreślona bez modelu (A), z modelem liniowym obejmującym tylko wiek (B) lub wiek i stałą (C), oraz z modelem liniowym dopasowującym oddzielne efekty wieku dla mężczyzn i kobiet (D)."}
+
+
+p1 <- NHANES_child %>%
+  ggplot(aes(x = Wiek, y = Wzrost)) +
+  geom_point(position = "jitter",size=0.05) +
+  scale_x_continuous(breaks = seq.int(0, 20, 2)) +
+  ggtitle('A: dane oryginalne')
+
+lmResultHeightOnly <- lm(Height ~ Age + 0, data=NHANES_child)
+rmse_heightOnly <- sqrt(mean(lmResultHeightOnly$residuals**2))
+
+p2 <- NHANES_child %>%
+  ggplot(aes(x = Wiek, y = Wysokość)) +
+  geom_point(position = "jitter",size=0.05) +
+  scale_x_continuous(breaks = seq.int(0, 20, 2)) +
+  annotate('segment',x=0,xend=max(NHANES_child$Age),
+           y=0,yend=max(lmResultHeightOnly$fitted.values),
+           color='blue',lwd=1) +
+  ggtitle('B: wiek')
+
+p3 <- NHANES_child %>%
+  ggplot(aes(x = Wiek, y = Wysokość)) +
+  geom_point(position = "jitter",size=0.05) +
+  scale_x_continuous(breaks = seq.int(0, 20, 2)) +
+  geom_smooth(method='lm',se=FALSE) +
+  ggtitle('C: wiek + stała')
+
+p4 <- NHANES_child %>%
+  ggplot(aes(x = Wiek, y = Wzrost)) +
+  geom_point(aes(color = factor(Gender)),
+             position = "jitter"
+             alfa = 0.8,
+             size=0.05) +
+  geom_smooth(method='lm',aes(group = factor(Gender),
+                              color = factor(Gender))) +
+  theme(legend.position = c(0.25,0.8)) +
+  ggtitle('D: wiek + stała + płeć')
+
+plot_grid(p1,p2,p3,p4,ncol=2)
+
+```
+
+Czarne punkty w panelu A rysunku pokazują osoby w zbiorze danych i wydaje się, że istnieje silny związek między wzrostem i wiekiem, tak jak byśmy się spodziewali.  Możemy więc zbudować model, który odnosi wzrost do wieku:
+
+$$
+\Wzrost = wzrost * wiek_i
+$$
+
+gdzie $hat{y_i}$ jest naszym szacunkiem parametru, który mnożymy przez wiek, aby wygenerować przewidywanie modelu.  
+
+Być może pamiętasz z algebry, że linia jest zdefiniowana w następujący sposób:
+
+$$
+y = nachylenie*x + przechwyt
+$$
+
+Jeśli wiek jest zmienną $X$, to oznacza to, że nasze przewidywanie wzrostu na podstawie wieku będzie linią o nachyleniu $beta$ i przechwycie równym zero - aby to zobaczyć, wykreślmy najlepiej dopasowaną linię w kolorze niebieskim na wierzchu danych (panel B na rysunku \@ref(fig:childHeightLine)). Coś jest wyraźnie nie tak z tym modelem, ponieważ linia nie wydaje się podążać za danymi bardzo dobrze.  W rzeczywistości RMSE dla tego modelu (`r I(rmse_heightOnly)`) jest w rzeczywistości wyższy niż model, który obejmuje tylko średnią! Problem bierze się stąd, że nasz model uwzględnia tylko wiek, co oznacza, że przewidywana wartość wzrostu z modelu musi przyjąć wartość zero, gdy wiek jest równy zero.  Nawet jeśli dane nie zawierają żadnych dzieci w wieku zero, matematycznie wymagane jest, aby linia miała wartość y równą zero, gdy x jest równe zero, co wyjaśnia, dlaczego linia jest ściągnięta w dół poniżej młodszych punktów danych.  Możemy to naprawić poprzez włączenie do naszego modelu punktu przecięcia, który zasadniczo reprezentuje szacowaną wysokość, gdy wiek jest równy zeru; nawet jeśli wiek równy zeru nie jest prawdopodobny w tym zestawie danych, jest to sztuczka matematyczna, która pozwoli modelowi uwzględnić ogólną wielkość danych.  Model to:
+
+$$
+\NWidehat{y_i} = \hin{beta_0} + \u200} * age_i
+$$
+
+gdzie $hat{beta_0}$ jest naszym oszacowaniem *przekątnej*, która jest stałą wartością dodawaną do predykcji dla każdego osobnika; nazywamy ją przechwytem, ponieważ odpowiada ona przechwytowi w równaniu linii prostej.  Później dowiemy się, jak to jest, że faktycznie szacujemy te wartości parametrów dla konkretnego zestawu danych; na razie użyjemy naszego oprogramowania statystycznego do oszacowania wartości parametrów, które dają nam najmniejszy błąd dla tych konkretnych danych. Panel C na rysunku pokazuje ten model zastosowany do danych NHANES, gdzie widzimy, że linia pasuje do danych znacznie lepiej niż ta bez stałej.
+
+``{r ageHeightError,echo=FALSE,fig.cap="Rozkład błędów z modelu uwzględniającego stałą i wiek.",fig.width=4,fig.height=4,out.height='50%'}
+# znajdź najlepiej dopasowany model, aby przewidzieć wzrost biorąc pod uwagę wiek
+model_age <- lm(Height ~ Age, data = NHANES_child)
+
+# funkcja add_predictions() używa dopasowanego modelu do dodania przewidywanych wartości dla każdej osoby do naszego zbioru danych
+NHANES_dziecko <-
+  NHANES_dziecko %>%
+  add_predictions(model_age, var = "predicted_age") %>%
+  mutate(
+    error_age = Height - predicted_age #oblicz różnicę każdej osoby od wartości przewidywanej
+  )
+
+rmse_age <-
+  NHANES_child %>%
+  summarise(
+    sqrt(mean((error_age)**2)) #oblicz błąd średniokwadratowy
+  ) %>%
+  pull()
+
+```
+
+
+``{r echo=FALSE}
+# oblicz dopasowanie modelu dla modelowania z wiekiem i płcią
+
+model_age_gender <- lm(Wysokość ~ Wiek + Płeć, dane = NHANES_child)
+
+rmse_age_gender <-
+  NHANES_child %>%
+  add_predictions(model_age_gender, var = "predicted_age_gender") %>%
+  podsumuj(
+    sqrt(mean((Height - predicted_age_gender)**2))
+  ) %>%
+  pull()
+
+```
+
+Nasz błąd jest znacznie mniejszy przy użyciu tego modelu -- średnio tylko `r I(rmse_age)` centymetrów.  Czy możesz pomyśleć o innych zmiennych, które również mogą być związane ze wzrostem? Co z płcią?  W panelu D rysunku \u0026aposiadamy dane z liniami dopasowanymi osobno dla mężczyzn i kobiet. Z wykresu wynika, że istnieje różnica między mężczyznami i kobietami, ale jest ona stosunkowo niewielka i pojawia się dopiero po osiągnięciu wieku dojrzewania.   Na rysunku wykreślamy wartości błędu średniokwadratowego dla różnych modeli, w tym jednego z dodatkowym parametrem, który modeluje wpływ płci. Widzimy, że model stał się nieco lepszy przechodząc od trybu do średniej, znacznie lepszy przechodząc od średniej do średniej + wiek, i tylko nieznacznie lepszy włączając również płeć.
+
+
+``{r msePlot,echo=FALSE, fig.cap="Średni błąd kwadratowy wykreślony dla każdego z modeli testowanych powyżej.",fig.width=4,fig.height=4,out.height='50%'}
+error_df <- #budujemy ramkę danych za pomocą funkcji tribble()
+  tribble(
+    ~model, ~error,
+    "mode", rmse_mode,
+    "średnia", rmse_mean,
+    "stała + wiek", rmse_age,
+    "stała + wiek + płeć", rmse_age_gender
+  ) %>%
+  mutate(
+    RMSE = błąd
+  )
+
+error_df %>%
+  ggplot(aes(x = model, y = RMSE)) +
+  geom_col() +
+  scale_x_discrete(limits = c("mode", "mean", "constant + age", "constant + age + gender")) +
+  labs(
+    y = "błąd średniokwadratowy"
+  ) +
+  coord_flip()
+
+```
+
+## Co sprawia, że model jest "dobry"?
+
+Generalnie są dwie różne rzeczy, których chcemy od naszego modelu statystycznego. Po pierwsze, chcemy, aby dobrze opisywał nasze dane; to znaczy, chcemy, aby miał najniższy możliwy błąd podczas modelowania naszych danych.  Po drugie, chcemy, aby dobrze generalizował na nowe zestawy danych; to znaczy, chcemy, aby jego błąd był jak najmniejszy, gdy zastosujemy go do nowego zestawu danych w celu dokonania predykcji.  Okazuje się, że te dwie cechy mogą być często w konflikcie.
+
+Aby to zrozumieć, zastanówmy się, skąd bierze się błąd.  Po pierwsze, może on wystąpić, jeśli nasz model jest błędny; na przykład, jeśli niedokładnie powiedzieliśmy, że wzrost spada z wiekiem, zamiast iść w górę, to nasz błąd będzie wyższy niż byłby dla poprawnego modelu.  Podobnie, jeśli w naszym modelu brakuje jakiegoś ważnego czynnika, to również zwiększy nasz błąd (tak jak to miało miejsce, gdy pominęliśmy wiek w modelu dla wzrostu).  Jednak błąd może pojawić się nawet wtedy, gdy model jest poprawny, z powodu losowej zmienności danych, którą często określamy jako "błąd pomiaru" lub "szum".  Czasami jest to rzeczywiście spowodowane błędem w naszych pomiarach - na przykład, gdy pomiary opierają się na człowieku, jak w przypadku użycia stopera do mierzenia czasu, który upłynął w biegu pieszym. W innych przypadkach nasze urządzenie pomiarowe jest bardzo dokładne (jak np. waga cyfrowa do pomiaru wagi ciała), ale na mierzoną rzecz wpływa wiele różnych czynników, które powodują, że jest ona zmienna.  Gdybyśmy znali wszystkie te czynniki, moglibyśmy zbudować dokładniejszy model, ale w rzeczywistości rzadko jest to możliwe.
+
+Użyjmy przykładu, aby to pokazać.  Zamiast korzystać z prawdziwych danych, wygenerujemy pewne dane dla przykładu za pomocą symulacji komputerowej (o której będziemy mieli więcej do powiedzenia w kilku rozdziałach).  Powiedzmy, że chcemy zrozumieć związek między zawartością alkoholu we krwi danej osoby (BAC) a jej czasem reakcji na symulowanym egzaminie na prawo jazdy.  Możemy wygenerować pewne symulowane dane i wykreślić tę zależność (patrz panel A rysunku).
+
+``{r, BACrt,echo=FALSE,message=FALSE, fig.cap="Symulowana zależność między zawartością alkoholu we krwi a czasem reakcji na egzaminie na prawo jazdy, z najlepiej dopasowanym modelem liniowym reprezentowanym przez linię. A: liniowa zależność z niskim błędem pomiaru.  B: liniowa zależność z większym błędem pomiaru.  C: nieliniowa zależność z niskim błędem pomiaru i (nieprawidłowym) modelem liniowym"}
+dataDf <-  
+  tibble(
+    BAC = runif(100) * 0.3,
+    ReactionTime = BAC * 1 + 1 + rnorm(100) * 0.01
+  )
+
+p1 <- dataDf %>%
+  ggplot(aes(x = BAC, y = ReactionTime)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle('A: liniowy, niski poziom szumu')
+
+# wersja z szumem
+dataDf <-  
+  tibble(
+    BAC = runif(100) * 0.3,
+    ReactionTime = BAC * 2 + 1 + rnorm(100) * 0.2
+  )
+
+p2 <- dataDf %>%
+  ggplot(aes(x = BAC, y = ReactionTime)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle('B: liniowy, wysoki szum')
+
+# funkcja nieliniowa (odwrócone-U)
+
+dataDf <-
+  dataDf %>%
+  mutate(
+    caffeineLevel = runif(100) * 10,
+    caffeineLevelInvertedU = (caffeineLevel - mean(caffeineLevel))**2,
+    testPerformance = -1 * caffeineLevelInvertedU + rnorm(100) * 0.5
+  )
+
+p3 <- dataDf %>%
+  ggplot(aes(x = caffeineLevel, y = testPerformance)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle('C: nonlinear')
+
+plot_grid(p1,p2,p3)
+```
+
+W tym przykładzie czas reakcji rośnie systematycznie wraz z zawartością alkoholu we krwi -- linia pokazuje najlepiej dopasowany model i widzimy, że jest bardzo mały błąd, co jest widoczne w tym, że wszystkie punkty są bardzo blisko linii.  
+
+Możemy również wyobrazić sobie dane, które pokazują tę samą liniową zależność, ale mają znacznie większy błąd, jak w panelu B na rysunku. Tutaj widzimy, że nadal istnieje systematyczny wzrost czasu reakcji z BAC, ale jest on znacznie bardziej zmienny u poszczególnych osób.  
+
+To były oba przykłady, gdzie związek między dwiema zmiennymi wydaje się być liniowy, a błąd odzwierciedla szum w naszym pomiarze. Z drugiej strony, istnieją inne sytuacje, w których związek między zmiennymi nie jest liniowy, a błąd będzie zwiększony, ponieważ model nie jest prawidłowo określony.  Powiedzmy, że interesuje nas związek między spożyciem kofeiny a wynikami na teście.  Zależność między środkami stymulującymi, takimi jak kofeina, a wynikami na teście jest często *nieliniowa* - to znaczy, że nie przebiega po linii prostej.  Dzieje się tak dlatego, że wydajność wzrasta przy mniejszych ilościach kofeiny (gdy osoba staje się bardziej czujna), ale następnie zaczyna spadać przy większych ilościach (gdy osoba staje się nerwowa i roztrzęsiona). Możemy zasymulować dane w tej postaci, a następnie dopasować do nich model liniowy (patrz Panel C na Rysunku \@ref(fig:BACrt)). Niebieska linia pokazuje prostą, która najlepiej pasuje do tych danych; wyraźnie widać, że istnieje wysoki stopień błędu.  Chociaż istnieje bardzo prawilny związek między wydajnością testu a spożyciem kofeiny, podąża on raczej po krzywej niż po linii prostej.  Model zakładający liniową zależność ma wysoki błąd, ponieważ jest to zły model dla tych danych.
+
+## Czy model może być zbyt dobry? Nadmierne dopasowanie {#overfitting}
+
+Błąd brzmi jak zła rzecz i zazwyczaj będziemy woleli model, który ma niższy błąd, niż taki, który ma wyższy błąd. Jednakże, wspomnieliśmy powyżej, że istnieje napięcie pomiędzy zdolnością modelu do dokładnego dopasowania do aktualnego zbioru danych a jego zdolnością do generalizacji na nowe zbiory danych, i okazuje się, że model z najniższym błędem często jest znacznie gorszy w generalizacji na nowe zbiory danych!  
+
+Aby się o tym przekonać, jeszcze raz wygenerujmy pewne dane, tak abyśmy znali prawdziwą relację między zmiennymi.  Stworzymy dwa symulowane zestawy danych, które są generowane w dokładnie taki sam sposób - po prostu dodano do nich inny losowy szum.  Oznacza to, że równanie dla obu z nich to $y = ¨beta * X + ¨epsilon$; jedyną różnicą jest to, że w każdym przypadku użyto innego szumu losowego dla $epsilon$.
+
+``{r Overfitting,echo=FALSE,message=FALSE,warning=FALSE, fig.cap='An example of overfitting. Oba zestawy danych zostały wygenerowane przy użyciu tego samego modelu, z różnym losowym szumem dodanym do wygenerowania każdego zestawu.  Lewy panel pokazuje dane użyte do dopasowania modelu, z prostym dopasowaniem liniowym na niebiesko i złożonym (wielomian 8. rzędu) na czerwono.  Wartości błędu średniokwadratowego (RMSE) dla każdego modelu są pokazane na rysunku; w tym przypadku model złożony ma niższy RMSE niż model prosty.  Prawy panel pokazuje drugi zbiór danych, z nałożonym na niego tym samym modelem i wartościami RMSE obliczonymi przy użyciu modelu uzyskanego z pierwszego zbioru danych.  Widzimy tutaj, że prostszy model faktycznie lepiej pasuje do nowego zbioru danych niż bardziej złożony model, który został nadmiernie dopasowany do pierwszego zbioru danych.',fig.width=8,fig.height=4,out.height='50%'}
+
+#parametry do symulacji
+set.seed(1122)
+sampleSize <- 16
+
+
+#buduj ramkę danych z symulowanych danych
+simData <-
+  tibble(
+    X = rnorm(sampleSize),
+    Y = X + rnorm(sampleSize, sd = 1),
+    Ynew = X + rnorm(sampleSize, sd = 1)
+  )
+
+#dopasuj modele do tych danych
+simpleModel <- lm(Y ~ X, data = simData)
+complexModel <- lm(Y ~ poly(X, 8), data = simData)
+
+#Oblicz średni błąd kwadratowy dla "bieżącego" zestawu danych
+rmse_simple <- sqrt(mean(simpleModel$residuals**2))
+rmse_complex <- sqrt(mean(complexModel$residuals**2))
+
+#oblicz błąd średniokwadratowy dla "nowego" zbioru danych
+rmse_prediction_simple <- sqrt(mean((simpleModel$fitted.values - simData$Ynew)**2))
+rmse_prediction_complex <- sqrt(mean((complexModel$fitted.values - simData$Ynew)**2))
+
+#wizualizuj
+plot_original_data <-
+  simData %>%
+  ggplot(aes(X, Y)) +
+  geom_point() +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ poly(x, 8),
+    color = "red",
+    se = FALSE
+  ) +
+  geom_smooth(
+    method = "lm",
+    color = "blue",
+    se = FALSE
+  ) +
+  ylim(-3, 3) +
+  annotate(
+    "text",
+    x = -1.25,
+    y = 2.5,
+    label = sprintf("RMSE=%0.1f", rmse_simple),
+    color = "blue",
+    hjust = 0,
+    cex = 4
+  ) +
+  annotate(
+    "text",
+    x = -1.25,
+    y = 2,
+    label = sprintf("RMSE=%0.1f", rmse_complex),
+    color = "red",
+    hjust = 0,
+    cex = 4
+  ) +
+  ggtitle("dane oryginalne")
+
+plot_new_data <-
+  simData %>%
+  ggplot(aes(X, Ynew)) +
+  geom_point() +
+  geom_smooth(
+    aes(X, Y),
+    metoda = "lm",
+    formula = y ~ poly(x, 8),
+    color = "red",
+    se = FALSE
+  ) +
+  geom_smooth(
+    aes(X, Y),
+    method = "lm",
+    color = "blue",
+    se = FALSE
+  ) +
+  ylim(-3, 3) +
+  annotate(
+    "text",
+    x = -1.25,
+    y = 2.5,
+    label = sprintf("RMSE=%0.1f", rmse_prediction_simple),
+    color = "blue",
+    hjust = 0,
+    cex = 4
+  ) +
+  annotate(
+    "text",
+    x = -1.25,
+    y = 2,
+    label = sprintf("RMSE=%0.1f", rmse_prediction_complex),
+    color = "red",
+    hjust = 0,
+    cex = 4
+  ) +
+  ggtitle("nowe dane")
+
+plot_grid(plot_original_data, plot_new_data)
+```
+
+Lewy panel na rysunku pokazuje, że bardziej złożony model (na czerwono) lepiej pasuje do danych niż prostszy model (na niebiesko).  Jednak widzimy coś przeciwnego, gdy ten sam model jest zastosowany do nowego zbioru danych wygenerowanego w ten sam sposób - tutaj widzimy, że prostszy model lepiej pasuje do nowych danych niż model bardziej złożony.  Intuicyjnie widzimy, że bardziej złożony model jest pod silnym wpływem konkretnych punktów danych w pierwszym zestawie danych; ponieważ dokładna pozycja tych punktów danych była napędzana przez losowy szum, prowadzi to do tego, że bardziej złożony model źle pasuje do nowego zestawu danych. Jest to zjawisko, które nazywamy *overfitting*. Na razie ważne jest, aby pamiętać, że nasz model musi być dobry, ale nie za dobry. Jak powiedział Albert Einstein (1933): "Z trudem można zaprzeczyć, że najwyższym celem wszelkiej teorii jest uczynienie nieredukowalnych elementów podstawowych tak prostymi i tak nielicznymi, jak to tylko możliwe, bez konieczności rezygnacji z adekwatnego odwzorowania choćby jednej bazy danych doświadczenia". Co często jest parafrazowane jako: "Wszystko powinno być tak proste, jak to tylko możliwe, ale nie prostsze".
+
+## Podsumowywanie danych za pomocą średniej
+
+Ze średnią (lub średnią) spotkaliśmy się już powyżej i tak naprawdę większość ludzi wie o średniej, nawet jeśli nigdy nie brała udziału w zajęciach ze statystyki. Jest ona powszechnie używana do opisywania tego, co nazywamy "tendencją centralną" zbioru danych - czyli wokół jakiej wartości skupiają się dane?  Większość ludzi nie myśli o obliczaniu średniej jako o dopasowaniu modelu do danych.  Jednak dokładnie to robimy, gdy obliczamy średnią.  
+
+Widzieliśmy już wzór na obliczenie średniej z próbki danych:
+
+$$
+\Bar{X} = \frac{sum_{i=1}^{n}x_i}{n}
+$$
+
+Zauważ, że powiedziałem, iż wzór ten dotyczy konkretnie *próbki* danych, czyli zbioru punktów danych wybranych z większej populacji. Używając próbki, chcemy scharakteryzować większą populację -- pełny zbiór jednostek, które nas interesują. Na przykład, jeśli jesteśmy ankieterem politycznym, naszą populacją mogą być wszyscy zarejestrowani wyborcy, podczas gdy nasza próbka może zawierać tylko kilka tysięcy osób wybranych z tej populacji.  W rozdziale 7. porozmawiamy bardziej szczegółowo o próbkowaniu, ale na razie ważne jest to, że statystycy na ogół lubią używać różnych symboli, aby odróżnić *statystyki*, które opisują wartości dla próbki, od *parametrów*, które opisują prawdziwe wartości dla populacji; w tym przypadku wzór na średnią dla populacji (oznaczany jako $$) to:
+
+$$
+\ˆmu = ˆfrac{sum_{i=1}^{N}x_i}{N}
+$$
+gdzie N jest wielkością całej populacji.
+
+Widzieliśmy już, że średnia jest estymatorem, który gwarantuje nam średni błąd równy zero, ale dowiedzieliśmy się również, że średni błąd nie jest najlepszym kryterium; zamiast tego chcemy estymatora, który daje nam najniższą sumę błędów kwadratowych (SSE), co średnia również robi. Moglibyśmy to udowodnić za pomocą rachunku, ale zamiast tego zademonstrujemy to graficznie na rysunku \u0026apos;.
+
+``{r MinSSE, echo=FALSE,fig.cap="Demonstracja średniej jako statystyki minimalizującej sumę błędów kwadratowych.  Używając danych NHANES dotyczących wzrostu dzieci, obliczamy średnią (oznaczoną niebieskim paskiem). Następnie testujemy szereg możliwych oszacowań parametrów i dla każdego z nich obliczamy sumę błędów kwadratowych dla każdego punktu danych od tej wartości, które są oznaczone czarną krzywą.  Widzimy, że średnia wypada na minimum wykresu błędu kwadratowego.",fig.width=4,fig.height=4,out.height='50%'}
+df_error <-
+  tibble(
+    val = seq(100, 175, 0.05),
+    sse = NA
+  )
+
+for (i in 1:dim(df_error)[1]) {
+  err <- NHANES_child$Height - df_error$val[i]
+  df_error$sse[i] <- suma(err**2)
+}
+
+df_error %>%
+  ggplot(aes(val, sse)) +
+  geom_vline(xintercept = mean(NHANES_child$Height), color = "blue") +
+  geom_point(size = 0.1) +
+  annotate(
+    "text",
+    x = mean(NHANES_child$Height) + 3,
+    y = max(df_error$sse),
+    label = "mean",
+    color = "blue"
+  ) +
+  labs(
+    x = "wartość testu"
+    y = "Suma błędów kwadratowych"
+  )
+
+```
+
+Ta minimalizacja SSE jest dobrą cechą i to dlatego średnia jest najczęściej używaną statystyką do podsumowania danych.  Jednak średnia ma również ciemną stronę.  Powiedzmy, że w barze przebywa pięć osób i badamy dochód każdej z nich (tabela \u2001):
+
+``{r echo=FALSE}
+# utwórz ramkę danych o dochodach
+
+incomeDf <-
+  tibble(
+  income = c(48000, 64000, 58000, 72000, 66000),
+  person = c("Joe", "Karen", "Mark", "Andrea", "Pat")
+)
+
+```
+
+``{r income1, echo=FALSE}
+kable(incomeDf, caption="Dochód dla naszych pięciu patronów baru")
+```
+
+Średnia (`r I(sprintf("%0.2f", mean(incomeDf$income)))`) wydaje się być całkiem dobrym podsumowaniem dochodów tych pięciu osób.  Teraz przyjrzyjmy się, co się stanie, jeśli do baru wejdzie Beyoncé Knowles (tabela \u0026apos; tab:income2).
+
+``{r echo=FALSE}
+# dodaj Beyonce do ramki danych o dochodach
+
+incomeDf <-
+  incomeDf %>%
+  rbind(c(540000, "Beyonce")) %>%
+  mutate(income = as.double(income))
+
+```
+
+``{r income2, echo=FALSE}
+kable(incomeDf %>% mutate(income=format(income, scientific=FALSE)), caption='Dochód naszych pięciu patronów baru plus Beyoncé Knowles.')
+
+```
+
+Średnia wynosi teraz prawie 10 milionów dolarów, co nie jest reprezentatywne dla żadnej z osób w barze - w szczególności jest silnie napędzana przez odstającą wartość Beyoncé.  Ogólnie rzecz biorąc, średnia jest bardzo wrażliwa na wartości skrajne, dlatego zawsze ważne jest, aby upewnić się, że nie ma wartości skrajnych, gdy używamy średniej do podsumowania danych.
+
+### Solidne podsumowanie danych przy użyciu mediany
+
+Jeśli chcemy podsumować dane w sposób, który jest mniej wrażliwy na wartości odstające, możemy użyć innej statystyki zwanej *medianą*.  Gdybyśmy mieli posortować wszystkie wartości w kolejności ich wielkości, to mediana jest wartością pośrodku.  Jeśli jest parzysta liczba wartości, to będą dwie wartości remisujące o środkowe miejsce, w takim przypadku bierzemy średnią (tj. półmetek) tych dwóch liczb.
+
+Przyjrzyjmy się przykładowi.  Powiedzmy, że chcemy podsumować następujące wartości:
+
+```
+8 6 3 14 12 7 6 4 9
+```
+
+
+Jeśli posortujemy te wartości:
+
+```
+3 4 6 6 7 8 9 12 14
+```
+
+Wtedy mediana jest środkową wartością - w tym przypadku, 5-tą z 9 wartości.
+
+Podczas gdy średnia minimalizuje sumę błędów kwadratowych, mediana minimalizuje nieco inną wielkość: sumę *absolutnej wartości* błędów.  To wyjaśnia, dlaczego mediana jest mniej wrażliwa na wartości skrajne - podniesienie do kwadratu spowoduje nasilenie efektu dużych błędów w porównaniu z przyjęciem wartości bezwzględnej.  Możemy to zobaczyć na przykładzie dochodu: Mediana dochodu (65 000 USD) jest znacznie bardziej reprezentatywna dla całej grupy niż średnia (9 051 333 USD), a także mniej wrażliwa na jedną dużą wartość odstającą.
+
+Biorąc to pod uwagę, dlaczego mielibyśmy kiedykolwiek używać średniej?  Jak zobaczymy w późniejszym rozdziale, średnia jest "najlepszym" estymatorem w tym sensie, że będzie się mniej różnić od próbki do próbki w porównaniu z innymi estymatorami.  Do nas należy decyzja, czy jest to warte wrażliwości na potencjalne wartości skrajne - w statystyce chodzi o kompromisy.
+
+## Tryb
+
+
+``{r echo=FALSE}
+# oblicz średnią numerów modeli iPhone'a
+iphoneDf <-
+  tribble(
+    ~iPhoneModel, ~count,
+    8, 325,
+    9, 450,
+    10, 700,
+    11, 250
+)
+
+meanPhoneNumber <-
+  iphoneDf %>%
+  summarize(
+    suma(iPhoneModel * count) / suma(count)
+  ) %>%
+  pull()
+
+
+```
+
+Czasami chcemy opisać tendencję centralną zbioru danych, która nie jest numeryczna.  Na przykład, powiedzmy, że chcemy wiedzieć, które modele iPhone'a są najczęściej używane.  Aby to sprawdzić, moglibyśmy zapytać dużą grupę użytkowników iPhone'a, jaki model posiada każda z osób. Gdybyśmy wzięli średnią z tych wartości, moglibyśmy zobaczyć, że średni model iPhone'a to `r I(meanPhoneNumber)`, co jest wyraźnie bezsensowne, ponieważ numery modeli iPhone'a nie są przeznaczone do pomiarów ilościowych. W tym przypadku bardziej odpowiednią miarą tendencji centralnej jest tryb, który jest najczęstszą wartością w zbiorze danych, jak omówiliśmy powyżej.
+
+## Zmienność: Jak dobrze średnia pasuje do danych?
+
+Po opisaniu tendencji centralnej danych, często chcemy również opisać jak bardzo dane są zmienne - jest to czasami określane jako "rozproszenie", odzwierciedlając fakt, że opisuje jak bardzo dane są rozproszone.  
+
+Z sumą błędów kwadratowych mieliśmy już do czynienia powyżej, co jest podstawą najczęściej stosowanych miar zmienności: *wariancji* i *odchylenia standardowego*.  Wariancja dla populacji (określana jako $sigma^2$) jest po prostu sumą błędów kwadratowych podzieloną przez liczbę obserwacji - czyli jest dokładnie taka sama jak napotkany wcześniej *średni błąd kwadratowy*:
+
+$$
+\NSigma^2 = \frac{SSE}{N} = \frac{sum_{i=1}^n (x_i - \mu)^2}{N}
+$$
+
+gdzie $mu$ to średnia z populacji. Odchylenie standardowe populacji to po prostu pierwiastek kwadratowy z tego -- czyli *pośredni błąd kwadratowy*, który widzieliśmy wcześniej.  Odchylenie standardowe jest przydatne, ponieważ błędy są w tych samych jednostkach, co oryginalne dane (cofając kwadratowanie, które zastosowaliśmy do błędów).
+
+Zazwyczaj nie mamy dostępu do całej populacji, więc musimy obliczyć wariancję na podstawie próbki, którą nazywamy $hat{sigma}^2$, przy czym "kapelusz" oznacza, że jest to oszacowanie na podstawie próbki. Równanie dla $hat{sigma}^2$ jest podobne do tego dla $sigma^2$:
+
+
+$$
+≥hat{sigma}^2 = ′frac{sum_{i=1}^n (x_i - ′bar{X})^2}{n-1}.
+$$
+
+Jedyna różnica między tymi dwoma równaniami polega na tym, że dzielimy przez n - 1 zamiast przez N. Wiąże się to z podstawowym pojęciem statystycznym: *stopni swobody*.  Pamiętajmy, że aby obliczyć wariancję z próby, musieliśmy najpierw oszacować średnią z próby $X}$.  Po jej oszacowaniu jedna wartość w danych nie ma już swobody.  Na przykład, powiedzmy, że mamy następujące punkty danych dla zmiennej $x$: [3, 5, 7, 9, 11], których średnia wynosi 7. Ponieważ wiemy, że średnia tego zestawu danych wynosi 7, możemy obliczyć, jaka byłaby każda konkretna wartość, gdyby jej zabrakło. Na przykład, powiedzmy, że mamy przesłonić pierwszą wartość (3). Zrobiwszy to, nadal wiemy, że jej wartość musi wynosić 3, ponieważ średnia 7 implikuje, że suma wszystkich wartości wynosi 7 * n = 35$ i 35$ - (5 + 7 + 9 + 11) = 3$.  
+
+Kiedy więc mówimy, że "straciliśmy" stopień swobody, oznacza to, że istnieje wartość, która nie może się swobodnie zmieniać po dopasowaniu modelu.  W kontekście wariancji próby, jeśli nie uwzględnimy utraconego stopnia swobody, to nasze oszacowanie wariancji próby będzie *biased*, powodując niedoszacowanie niepewności naszego oszacowania średniej.
+
+## Wykorzystanie symulacji do zrozumienia statystyki
+
+Jestem zwolennikiem stosowania symulacji komputerowych w celu zrozumienia pojęć statystycznych, a w późniejszych rozdziałach bardziej zagłębimy się w ich wykorzystanie.  Tutaj wprowadzimy ten pomysł, pytając, czy możemy potwierdzić potrzebę odejmowania 1 od wielkości próby przy obliczaniu wariancji z próby.
+
+Potraktujmy całą próbę dzieci z danych NHANES jako naszą "populację" i zobaczmy, jak dobrze obliczenia wariancji próby z użyciem $n$ lub $n-1$ w mianowniku oszacują wariancję tej populacji, w dużej liczbie symulowanych prób losowych z danych.  Do szczegółów, jak to zrobić, wrócimy w późniejszym rozdziale.
+
+``{r varsim, echo=FALSE}
+# porównaj oszacowania wariancji używając N lub N-1 w mianowniku
+
+population_variance <-
+  NHANES_dziecko %>%
+  summarize(
+    var(Wysokość)
+  ) %>%
+  pull()
+
+
+# weź 100 próbek i oszacuj wariancję próbki używając zarówno N lub N-1 w demoninatorze
+sampsize <- 50
+nsamp <- 10000
+varhat_n <- array(data = NA, dim = nsamp)
+varhat_nm1 <- array(dane = NA, dim = nsamp)
+
+for (i in 1:nsamp) {
+  samp <- sample_n(NHANES_child, 1000)[1:sampsize, ]
+  sampmean <- mean(samp$Height)
+  sse <- suma((samp$Height - sampmean)**2)
+  varhat_n[i] <- sse / sampsize
+  varhat_nm1[i] <- sse / (sampsize - 1)
+}
+
+summary_df <- data.frame(Estimate=c("Wariancja populacji",
+                                    "Szacunek wariancji przy użyciu n",
+                                    "Szacunek wariancji przy użyciu n-1"),
+                         Value=c(population_variance,
+                                 mean(varhat_n),
+                                 mean(varhat_nm1)))
+
+kable(summary_df, caption='Szacunki wariancji przy użyciu n versus n-1; szacunek przy użyciu n-1 jest bliższy wartości populacji')
+```
+
+Wyniki w tab:varsim pokazują nam, że teoria przedstawiona powyżej była poprawna: oszacowanie wariancji przy użyciu $n - 1$ jako mianownika jest bardzo bliskie wariancji obliczonej na pełnych danych (tj. populacji), natomiast wariancja obliczona przy użyciu $n$ jako mianownika jest tendencyjna (mniejsza) w stosunku do wartości prawdziwej.
+
+## Z-scores
+
+``{r setupCrimeData, echo=FALSE}
+
+crimeData <-
+  read.table(
+    "data/CrimeOneYearofData_clean.csv"
+    header = TRUE,
+    sep = ","
+  )
+
+# porzućmy DC, ponieważ jest tak mały
+crimeData <-
+  crimeData %>%
+  dplyr::filter(State != "District of Columbia")
+
+caCrimeData <-
+  crimeData %>%
+  dplyr::filter(State == "California")
+
+
+```
+
+Po scharakteryzowaniu rozkładu pod względem jego tendencji centralnej i zmienności, często przydatne jest wyrażenie poszczególnych wyników w kategoriach tego, gdzie znajdują się one w odniesieniu do ogólnego rozkładu.  Powiedzmy, że jesteśmy zainteresowani scharakteryzowaniem względnego poziomu przestępczości w różnych stanach, aby określić, czy Kalifornia jest szczególnie niebezpiecznym miejscem. Możemy zadać to pytanie, wykorzystując dane za rok 2014 z [strony FBI Uniform Crime Reporting](https://www.ucrdatatool.gov/Search/Crime/State/RunCrimeOneYearofData.cfm). Lewy panel rysunku [fig:crimeHist] przedstawia histogram liczby przestępstw z użyciem przemocy w podziale na poszczególne stany, podkreślając wartość dla Kalifornii. Patrząc na te dane, wydaje się, że Kalifornia jest strasznie niebezpieczna, z `r I(caCrimeData$Violent.crime.total)` przestępstwami w danym roku.  Możemy zwizualizować te dane, generując mapę pokazującą rozkład zmiennej w poszczególnych stanach, co przedstawia prawy panel rysunku \N(fig:crimeHist).
+
+
+``{r crimeHist,echo=FALSE,fig.cap="Left: Histogram of the number of violent crimes.  Wartość dla CA jest wykreślona na niebiesko. Po prawej: Mapa tych samych danych, z liczbą przestępstw (w tysiącach) wykreśloną dla każdego stanu w kolorze.", fig.width=8,fig.height=4,out.height='50%'}
+p1 <- crimeData %>%
+  ggplot(aes(Violent.crime.total)) +
+  geom_histogram(bins = 25) +
+  geom_vline(xintercept = caCrimeData$Violent.crime.total, color = "blue") +
+  xlab("Liczba przestępstw z użyciem przemocy w 2014 roku")
+
+library(mapproj)
+library(fiftystater)
+
+data("fifty_states") # ta linia jest opcjonalna z powodu leniwego ładowania danych
+
+crimeData <-
+  crimeData %>%
+  mutate(StateLower = tolower(State),
+         Violent.crime.thousands=Violent.crime.total/1000)
+
+# map_id tworzy estetyczne mapowanie do kolumny nazwy państwa w twoich danych
+plot_map <-
+  ggplot(crimeData, aes(map_id = StateLower)) +
+  # mapuj punkty do danych o kształcie fifty_states
+  geom_map(aes(fill = Violent.crime.thousands), map = fifty_states) +
+  scale_x_continuous(breaks = NULL) +
+  scale_y_continuous(breaks = NULL) +
+  theme(
+    legend.position = "bottom"
+    panel.background = element_blank()
+  ) +
+  coord_map() +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  labs(
+    x = "",
+    y = ""
+  )
+
+# dodaj ramki do AK/HI
+p2 <- plot_map + fifty_states_inset_boxes()
+
+plot_grid(p1,p2)
+```
+
+Być może jednak przyszło Ci do głowy, że CA ma również największą populację ze wszystkich stanów w USA, więc rozsądnie jest mieć również większą liczbę przestępstw.  Jeśli wykreślimy liczbę przestępstw w stosunku do jednej populacji każdego stanu (patrz lewy panel rysunku \u0026apos; fig:popVsCrime), widzimy, że istnieje bezpośredni związek między dwiema zmiennymi.  
+
+``{r popVsCrime,echo=FALSE,fig.cap="Left: A plot of number of violent crimes versus population by state. Po prawej: Histogram wskaźników przestępstw z użyciem przemocy na mieszkańca, wyrażony jako przestępstwa na 100 000 osób.",fig.width=8,fig.height=4,out.height='50%'}
+p1 <- crimeData %>%
+  ggplot(aes(Population, Violent.crime.total)) +
+  geom_point() +
+  annotate(
+    "point",
+    x = caCrimeData$Population,
+    y = caCrimeData$Violent.crime.total,
+    color = "blue"
+  ) +
+  annotate(
+    "text",
+    x = caCrimeData$Population - 1000000,
+    y = caCrimeData$Violent.crime.total + 8000,
+    label = "CA",
+    color = "blue"
+  ) +
+  ylab("Liczba przestępstw z użyciem przemocy w 2014 roku")
+
+p2 <- crimeData %>%
+  ggplot(aes(Violent.Crime.rate)) +
+  geom_histogram(binwidth = 80) +
+  geom_vline(xintercept = caCrimeData$Violent.Crime.rate, color = "blue") +
+  annotate(
+    "text",
+    x = caCrimeData$Violent.Crime.rate+25,
+    y = 12,
+    label = "CA",
+    color = "blue"
+  ) +
+  scale_x_continuous(breaks = seq.int(0, 700, 100)) +
+  scale_y_continuous(breaks = seq.int(0, 13, 2)) +
+  xlab("Wskaźnik przestępstw z użyciem przemocy na 100 000 osób")
+
+plot_grid(p1,p2)
+
+```
+
+Zamiast używać surowych liczb przestępstw, powinniśmy zamiast tego użyć wskaźnika przestępstw z użyciem przemocy *rate* per capita, który otrzymujemy dzieląc liczbę przestępstw na stan przez populację każdego stanu.  Zbiór danych od FBI zawiera już tę wartość (wyrażoną jako wskaźnik na 100 000 osób). Patrząc na prawy panel wykresu, widzimy, że Kalifornia nie jest wcale taka niebezpieczna - jej wskaźnik przestępczości `r I(sprintf("%.2f", caCrimeData$Violent.Crime.rate))` na 100 000 osób jest nieco powyżej średniej dla wszystkich stanów `r I(sprintf("%.2f", mean(crimeData$Violent.Crime.rate)))`, ale dobrze mieści się w zakresie wielu innych stanów. Ale co, jeśli chcemy uzyskać wyraźniejszy obraz tego, jak daleko jest on od reszty rozkładu?
+
+Wskaźnik *Z-score* pozwala nam wyrazić dane w sposób, który zapewnia lepszy wgląd w relację każdego punktu danych do ogólnego rozkładu.  Wzór na obliczenie Z-score dla pojedynczego punktu danych, biorąc pod uwagę, że znamy wartość średniej populacji $mu$ i odchylenia standardowego $sigma$ to:
+
+$$
+Z(x) = \frac{x - \mu}{sigma}.
+$$
+
+Intuicyjnie, można myśleć o wyniku Z jako o tym, jak daleko każdy punkt danych jest od średniej, w jednostkach odchylenia standardowego.  Możemy to obliczyć dla danych dotyczących wskaźnika przestępczości, jak pokazano na rysunku, który przedstawia wyniki Z względem oryginalnych wyników.
+
+``{r crimeZplot,echo=FALSE,fig.cap="Scatterplot of original crime rate data against Z-scored data.",fig.width=4,fig.height=4,out.height='50%'}
+crimeData <-
+  crimeData %>%
+  mutate(
+    ViolentCrimeRateZscore =.
+      (Violent.Crime.rate - mean(Violent.Crime.rate)) /
+      sd(crimeData$Violent.Crime.rate)
+    )
+
+caCrimeData <-
+  crimeData %>%
+  dplyr::filter(State == "California")
+
+crimeData %>%
+  ggplot(aes(Violent.Crime.rate, ViolentCrimeRateZscore)) +
+  geom_point() +
+  labs(
+    x = "Wskaźnik przestępstw z użyciem przemocy",
+    y = "Wskaźnik przestępstw z użyciem przemocy w skali Z"
+  )
+```
+
+Wykres pokazuje nam, że proces Z-scoring nie zmienia względnego rozkładu punktów danych (widocznego w fakcie, że oryginalne dane i dane Z-scored spadają na linii prostej, gdy są wykreślone przeciwko sobie) -- po prostu przesuwa je tak, aby miały średnią równą zero i odchylenie standardowe równe jeden. Rysunek pokazuje dane o przestępczości w skali Z w widoku geograficznym.
+
+``{r crimeZmap,echo=FALSE,fig.cap="Dane o przestępstwach umieszczone na mapie USA, przedstawione jako wskaźniki Z."}
+plot_map_z <-
+  ggplot(crimeData, aes(map_id = StateLower)) +
+  # punkty mapy do danych kształtu fifty_states
+  geom_map(aes(fill = ViolentCrimeRateZscore), map = fifty_states) +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  scale_x_continuous(breaks = NULL) +
+  scale_y_continuous(breaks = NULL) +
+  theme(
+    legend.position = "bottom",
+    panel.background = element_blank()
+  ) +
+  coord_map() +
+  expand_limits(x = fifty_states$long, y = fifty_states$lat) +
+  labs(x = "", y = "")
+
+# dodaj ramki do AK/HI
+plot_map_z + fifty_states_inset_boxes()
+```
+
+To zapewnia nam nieco bardziej interpretowalny widok danych. Na przykład, możemy zobaczyć, że Nevada, Tennessee i Nowy Meksyk mają wskaźniki przestępczości, które są około dwa odchylenia standardowe powyżej średniej.
+
+### Interpretacja współczynników Z
+
+Z" w "Z-score" pochodzi od faktu, że standardowy rozkład normalny (to jest, rozkład normalny ze średnią równą zero i odchyleniem standardowym równym 1) jest często nazywany rozkładem "Z".  Możemy użyć standardowego rozkładu normalnego, aby pomóc nam zrozumieć, co konkretne wyniki Z mówią nam o tym, gdzie punkt danych siedzi w odniesieniu do reszty rozkładu.
+
+``{r zDensityCDF,echo=FALSE,fig.cap="Gęstość (góra) i rozkład skumulowany (dół) standardowego rozkładu normalnego, z odciętymi przy jednym odchyleniu standardowym powyżej/poniżej średniej."}
+# Najpierw utwórz funkcję, która wygeneruje wykresy gęstości i CDF
+dnormfun <- function(x) {
+  return(dnorm(x, 248))
+}
+
+plot_density_and_cdf <-
+  function(zcut, zmin = -4, zmax = 4, plot_cdf = TRUE, zmean = 0, zsd = 1) {
+    zmin <- zmin * zsd + zmean
+    zmax <- zmax * zsd + zmean
+    x <- seq(zmin, zmax, 0.1 * zsd)
+    zdist <- dnorm(x, mean = zmean, sd = zsd)
+    area <- pnorm(zcut) - pnorm(-zcut)
+
+    p2 <-
+      tibble(
+        zdist = zdist,
+        x = x
+      ) %>%
+      ggplot(aes(x, zdist)) +
+      geom_line(
+        aes(x, zdist),
+        color = "red",
+        size = 2
+      ) +
+      stat_function(
+        fun = dnorm, args = list(mean = zmean, sd = zsd),
+        xlim = c(zmean - zcut * zsd, zmean + zsd * zcut),
+        geom = "area", fill = "orange"
+      ) +
+      stat_function(
+        fun = dnorm, args = list(mean = zmean, sd = zsd),
+        xlim = c(zmin, zmean - zcut * zsd),
+        geom = "area", fill = "green"
+      ) +
+      stat_function(
+        fun = dnorm, args = list(mean = zmean, sd = zsd),
+        xlim = c(zmean + zcut * zsd, zmax),
+        geom = "area", fill = "green"
+      ) +
+      annotate(
+        "text",
+        x = zmean,
+        y = dnorm(zmean, mean = zmean, sd = zsd) / 2,
+        label = sprintf("%0.1f%", area * 100)
+      ) +
+      annotate(
+        "text",
+        x = zmean - zsd * zcut - 0.5 * zsd,
+        y = dnorm(zmean - zcut * zsd, mean = zmean, sd = zsd) + 0.01 / zsd,
+        label = sprintf("%0.1f%", pnorm(zmean - zsd * zcut, mean = zmean, sd = zsd) * 100)
+      ) +
+      annotate(
+        "text",
+        x = zmean + zsd * zcut + 0.5 * zsd,
+        y = dnorm(zmean - zcut * zsd, mean = zmean, sd = zsd) + 0.01 / zsd,
+        label = sprintf("%0.1f%", (1 - pnorm(zmean + zsd * zcut, mean = zmean, sd = zsd)) * 100)
+      ) +
+      xlim(zmin, zmax) +
+      labs(
+        x = "wynik Z",
+        y = "gęstość"
+      )
+
+    if (plot_cdf) {
+      cdf2 <-
+        tibble(
+          zdist = zdist,
+          x = x,
+          zcdf = pnorm(x, mean = zmean, sd = zsd)
+        ) %>%
+        ggplot(aes(x, zcdf)) +
+        geom_line() +
+        annotate(
+          "segment",
+          x = zmin,
+          xend = zmean + zsd * zcut,
+          y = pnorm(zmean + zsd * zcut, mean = zmean, sd = zsd),
+          yend = pnorm(zmean + zsd * zcut, mean = zmean, sd = zsd),
+          color = "red",
+          linetype = "dashed"
+        ) +
+        annotate(
+          "segment",
+          x = zmean + zsd * zcut,
+          xend = zmean + zsd * zcut,
+          y = 0, yend = pnorm(zmean + zsd * zcut, mean = zmean, sd = zsd),
+          color = "red",
+          linetype = "dashed"
+        ) +
+        annotate(
+          "segment",
+          x = zmin,
+          xend = zmean - zcut * zsd,
+          y = pnorm(zmean - zcut * zsd, mean = zmean, sd = zsd),
+          yend = pnorm(zmean - zcut * zsd, mean = zmean, sd = zsd),
+          color = "blue",
+          linetype = "dashed"
+        ) +
+        annotate(
+          "segment",
+          x = zmean - zcut * zsd,
+          xend = zmean - zcut * zsd,
+          y = 0,
+          yend = pnorm(zmean - zcut * zsd, mean = zmean, sd = zsd),
+          color = "blue",
+          linetype = "dashed"
+        ) +
+        ylab("Gęstość skumulowana")
+
+      plot_grid(p2, cdf2, nrow = 2)
+    } else {
+      print(p2)
+    }
+  }
+
+plot_density_and_cdf(1)
+
+```
+
+Górny panel na rysunku ‖ pokazuje, że spodziewamy się, że około 16% wartości będzie się mieściło w przedziale $Z gęstości 1$ i taka sama część w przedziale $Z gęstości -1$.  
+
+``{r zDensity2SD,echo=FALSE,fig.cap="Gęstość (góra) i rozkład skumulowany (dół) standardowego rozkładu normalnego, z odciętymi przy dwóch odchyleniach standardowych powyżej/poniżej średniej"}
+plot_density_and_cdf(2)
+```
+
+Rysunek \"fig:zDensity2SD" pokazuje ten sam wykres dla dwóch odchyleń standardowych. Widzimy tutaj, że tylko około 2,3% wartości mieści się w $Z -2$ i tyle samo w $Z 2$.  Tak więc, jeśli znamy wynik Z dla danego punktu danych, możemy oszacować, jak prawdopodobne lub mało prawdopodobne byłoby znalezienie wartości co najmniej tak skrajnej jak ta wartość, co pozwala nam umieścić wartości w lepszym kontekście.  W przypadku wskaźników przestępczości, widzimy, że Kalifornia ma Z-score 0.38 dla jej wskaźnika przestępstw z użyciem przemocy na osobę, pokazując, że jest to dość blisko średniej innych stanów, z około 35% stanów mających wyższe wskaźniki i 65% stanów mających niższe wskaźniki.
+
+### Wyniki standaryzowane
+
+Powiedzmy, że zamiast współczynników Z, chcemy wygenerować znormalizowane wyniki przestępczości ze średnią 100 i odchyleniem standardowym 10.  Jest to podobne do standaryzacji, którą przeprowadza się z wynikami testów na inteligencję, aby wygenerować iloraz inteligencji (IQ).  Możemy to zrobić poprzez pomnożenie wyników Z przez 10, a następnie dodanie 100.
+
+``{r stdScores,echo=FALSE,fig.cap="Dane o przestępczości przedstawione jako znormalizowane wyniki ze średnią 100 i odchyleniem standardowym 10.",fig.width=4,fig.height=4,out.height='50%'}
+crimeData <-
+  crimeData %>%
+  mutate(
+    ViolentCrimeRateStdScore = (ViolentCrimeRateZscore) * 10 + 100
+  )
+
+caCrimeData <-
+  crimeData %>%
+  filter(State == "California")
+
+crimeData %>%
+  ggplot(aes(ViolentCrimeRateStdScore)) +
+  geom_histogram(binwidth = 5) +
+  geom_vline(xintercept = caCrimeData$ViolentCrimeRateStdScore, color = "blue") +
+  scale_y_continuous(breaks = seq.int(0, 13, 2)) +
+  annotate(
+    "text",
+    x = caCrimeData$ViolentCrimeRateStdScore,
+    y = 12,
+    label = "California",
+    color = "blue"
+  ) +
+  labs(
+    x = "Standaryzowany wskaźnik przestępstw z użyciem przemocy"
+  )
+```
+
+
+#### Wykorzystanie współczynników Z do porównywania rozkładów
+
+Jednym z użytecznych zastosowań współczynników Z jest porównywanie rozkładów różnych zmiennych.  Powiedzmy, że chcemy porównać rozkłady przestępstw z użyciem przemocy i przestępstw z użyciem mienia w poszczególnych stanach.  W lewym panelu rysunku ∙ref(fig:crimeTypePlot) wykreślamy je względem siebie, z CA wykreślonym na niebiesko. Jak widać, surowe wskaźniki przestępstw przeciwko mieniu są znacznie wyższe niż surowe wskaźniki przestępstw z użyciem przemocy, więc nie możemy bezpośrednio porównać tych liczb.  Możemy jednak narysować wykresy Z dla tych danych względem siebie (prawy panel rysunku @ref(fig:crimeTypePlot)) - tutaj ponownie widzimy, że rozkład danych nie zmienia się.  Po umieszczeniu danych w Z-scores dla każdej zmiennej sprawia, że są one porównywalne, i pozwala nam zobaczyć, że Kalifornia jest rzeczywiście w samym środku rozkładu, jeśli chodzi o przestępstwa z użyciem przemocy i przestępstwa przeciwko mieniu.
+
+``{r crimeTypePlot,echo=FALSE,fig.cap="Plot of violent vs. property crime rates (left) and Z-scored rates (right).",fig.width=8,fig.height=4,out.height='50%'}
+
+p1 <- crimeData %>%
+  ggplot(aes(Violent.Crime.rate, Property.crime.rate)) +
+  geom_point(size = 2) +
+  annotate(
+    "point",
+    x = caCrimeData$Violent.Crime.rate,
+    y = caCrimeData$Property.crime.rate,
+    color = "blue",
+    size = 5
+  ) +
+  annotate(
+    "text",
+    x = caCrimeData$Violent.crime.rate,
+    y = caCrimeData$Property.crime.rate + 50,
+    label = "California",
+    color = "blue",
+    size = 5
+  ) +
+  labs(
+    x = "Wskaźnik przestępczości z użyciem przemocy (na 100 000)",
+    y = "Wskaźnik przestępczości przeciwko mieniu (na 100 000)"
+  )
+
+# wykreśl z wyników
+
+crimeData <-
+  crimeData %>%
+  mutate(
+    PropertyCrimeRateZscore =.
+      (Property.crime.rate - mean(Property.crime.rate)) /
+      sd(Property.crime.rate)
+  )
+
+caCrimeData <-
+  crimeData %>%
+  dplyr::filter(State == "California")
+
+
+p2 <- crimeData %>%
+  ggplot(aes(ViolentCrimeRateZscore, PropertyCrimeRateZscore)) +
+  geom_point(size = 2) +
+  scale_y_continuous(breaks = seq.int(-2, 2, .5)) +
+  scale_x_continuous(breaks = seq.int(-2, 2, .5)) +
+  annotate(
+    "point",
+    x = caCrimeData$ViolentCrimeRateZscore,
+    y = caCrimeData$PropertyCrimeRateZscore,
+    color = "blue", size = 5
+  ) +
+  annotate(
+    "text",
+    x = caCrimeData$ViolentCrimeRateZscore,
+    y = caCrimeData$PropertyCrimeRateZscore + .1,
+    label = "California",
+    color = "blue",
+    size = 5
+  ) +
+  theme(
+    axis.title = element_text(size = 16)
+  ) +
+  labs(
+    x = "z-skalowany wskaźnik przestępstw z użyciem przemocy",
+    y = "z-skalowany wskaźnik przestępstw przeciwko mieniu"
+  )
+
+plot_grid(p1,p2)
+```
+
+Dodajmy do wykresu jeszcze jeden czynnik: Populacja.  W lewym panelu rysunku `ref(fig:crimeTypePopPlot) pokazujemy to za pomocą wielkości symbolu wykresu, co jest często użytecznym sposobem dodawania informacji do wykresu.
+
+``{r crimeTypePopPlot,echo=FALSE,fig.cap="Left: Plot of violent vs. property crime rates, with population size presented through the size of the plotting symbol; California is presented in blue. Po prawej: Wyniki różnicowe dla przestępstw z użyciem przemocy vs. przestępstw z użyciem mienia, wykreślone względem populacji. ",fig.width=8,fig.height=4,out.height='50%'}
+
+p1 <- crimeData %>%
+  ggplot(aes(ViolentCrimeRateZscore, PropertyCrimeRateZscore)) +
+  geom_point(aes(size = Population)) +
+  annotate(
+    "point",
+    x = caCrimeData$ViolentCrimeRateZscore,
+    y = caCrimeData$PropertyCrimeRateZscore,
+    color = "blue",
+    size = 5
+  ) +
+  labs(
+    x = "z-skalowany wskaźnik przestępstw z użyciem przemocy",
+    y = "z-skalowany wskaźnik przestępstw przeciwko mieniu"
+  ) +
+  theme(legend.position = c(0.2,0.8))
+
+crimeData <- crimeData %>%
+  mutate(
+    ViolenceDiff = ViolentCrimeRateZscore - PropertyCrimeRateZscore
+  )
+
+p2 <- crimeData %>%
+  ggplot(aes(Population, ViolenceDiff)) +
+  geom_point() +
+  ylab("Różnica przemocy")
+
+plot_grid(p1,p2)
+```
+
+Ponieważ wskaźniki Z są bezpośrednio porównywalne, możemy również obliczyć *wynik różnicy*, który wyraża względny wskaźnik przestępstw z użyciem przemocy do przestępstw bez użycia przemocy (mienia) w poszczególnych stanach. Następnie możemy wykreślić te wyniki w stosunku do liczby ludności (patrz prawy panel rysunku \@ref(fig:crimeTypePopPlot)). Pokazuje to, w jaki sposób możemy użyć współczynników Z, aby połączyć różne zmienne na wspólnej skali.
+
+Warto zauważyć, że najmniejsze stany wydają się mieć największe różnice w obu kierunkach. Choć może być kuszące przyjrzenie się każdemu ze stanów i próba określenia, dlaczego ma wysoki lub niski wynik różnicy, prawdopodobnie odzwierciedla to fakt, że szacunki uzyskane z mniejszych prób z konieczności będą bardziej zmienne, co omówimy w rozdziale 7.
+
+## Cele nauczania.
+
+* Opisz podstawowe równanie dla modeli statystycznych (dane=model + błąd)
+* Opisać różne miary tendencji centralnej i dyspersji, jak się je oblicza i które są odpowiednie w jakich okolicznościach.
+* Obliczyć Z-score i opisać dlaczego są przydatne.
+
+## Dodatek
+
+### Dowód, że suma błędów od średniej wynosi zero
+
+$$
+błąd = ∑^{n}(x_i - ∑X}) = 0
+$$
+
+
+$$
+\Nsum_{i=1}^{n}x_i - \n}x_i - \n}=0
+$$
+
+$$
+\^sum_{i=1}^{n}x_i = ^sum_{i=1}^{n} ^bar{X}
+$$
+
+$$
+\$$ ^sum_{i=1}^{n}x_i = n^bar{X}
+$$
+
+$$
+\Suma = ^{n}x_i = ^{n}x_i
+$$
